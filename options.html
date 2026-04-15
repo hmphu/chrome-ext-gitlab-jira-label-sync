@@ -1,0 +1,61 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>GitLab Jira Label Sync - Settings</title>
+  <link rel="stylesheet" href="options.css">
+</head>
+<body>
+  <div class="container">
+    <h1>GitLab Jira Label Sync — Settings</h1>
+
+    <form id="settings-form">
+      <fieldset>
+        <legend>GitLab</legend>
+        <div class="field">
+          <label for="gitlabBaseUrl">GitLab API Base URL</label>
+          <input type="url" id="gitlabBaseUrl" placeholder="https://gitlab.example.com">
+          <span class="hint">Your GitLab instance URL (without /api/v4)</span>
+        </div>
+        <div class="field">
+          <label for="gitlabToken">Personal Access Token</label>
+          <input type="password" id="gitlabToken" placeholder="glpat-xxxxxxxxxxxx">
+          <span class="hint">Needs api scope</span>
+        </div>
+      </fieldset>
+
+      <fieldset>
+        <legend>Jira</legend>
+        <div class="field">
+          <label for="jiraBaseUrl">Jira Base URL</label>
+          <input type="url" id="jiraBaseUrl" placeholder="https://yourteam.atlassian.net">
+        </div>
+        <div class="field">
+          <label for="jiraEmail">Email</label>
+          <input type="email" id="jiraEmail" placeholder="you@example.com">
+        </div>
+        <div class="field">
+          <label for="jiraToken">API Token</label>
+          <input type="password" id="jiraToken" placeholder="Atlassian API token">
+          <span class="hint">Generate at id.atlassian.com/manage-profile/security/api-tokens</span>
+        </div>
+      </fieldset>
+
+      <fieldset>
+        <legend>Advanced</legend>
+        <div class="field">
+          <label for="jiraPattern">Jira Ticket Pattern (Regex)</label>
+          <input type="text" id="jiraPattern" placeholder="[A-Z][A-Z0-9]+-\d+">
+          <span class="hint">Regular expression to match Jira ticket IDs in MR titles</span>
+        </div>
+      </fieldset>
+
+      <div class="actions">
+        <button type="submit" class="btn-primary">Save Settings</button>
+        <span id="save-status" class="save-status"></span>
+      </div>
+    </form>
+  </div>
+  <script src="options.js"></script>
+</body>
+</html>

@@ -1,0 +1,31 @@
+const form = document.getElementById('settings-form');
+const saveStatus = document.getElementById('save-status');
+
+const fields = ['gitlabBaseUrl', 'gitlabToken', 'jiraBaseUrl', 'jiraEmail', 'jiraToken', 'jiraPattern'];
+
+async function loadSettings() {
+  const settings = await chrome.storage.sync.get({
+    gitlabBaseUrl: '',
+    gitlabToken: '',
+    jiraBaseUrl: '',
+    jiraEmail: '',
+    jiraToken: '',
+    jiraPattern: '[A-Z][A-Z0-9]+-\\d+'
+  });
+
+  fields.forEach(f => {
+    document.getElementById(f).value = settings[f];
+  });
+}
+
+form.addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const data = {};
+  fields.forEach(f => { data[f] = document.getElementById(f).value.trim(); });
+
+  await chrome.storage.sync.set(data);
+  saveStatus.textContent = 'Saved!';
+  setTimeout(() => { saveStatus.textContent = ''; }, 2000);
+});
+
+loadSettings();
