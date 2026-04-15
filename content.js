@@ -1,7 +1,32 @@
 (() => {
   const JIRA_PATTERN = /[A-Z][A-Z0-9]+-\d+/;
 
+  function isSingleMRPage() {
+    return /\/-\/merge_requests\/\d+/.test(window.location.pathname);
+  }
+
+  function extractSingleMR() {
+    const titleEl = document.querySelector('.detail-page-header .title, .merge-request-details .title, [data-testid="title-content"], .page-title');
+    if (!titleEl) return null;
+
+    const title = titleEl.textContent.trim();
+    const match = title.match(JIRA_PATTERN);
+    const iidMatch = window.location.pathname.match(/merge_requests\/(\d+)/);
+
+    return {
+      title,
+      jiraTicket: match ? match[0] : null,
+      mrIid: iidMatch ? iidMatch[1] : null,
+      mrUrl: window.location.pathname
+    };
+  }
+
   function extractMergeRequests() {
+    if (isSingleMRPage()) {
+      const mr = extractSingleMR();
+      return mr ? [mr] : [];
+    }
+
     const mrRows = document.querySelectorAll('.merge-request');
     const results = [];
 
