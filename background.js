@@ -108,12 +108,14 @@ async function resolveJiraTicket(settings, projectPath, mr) {
   const encoded = encodeURIComponent(projectPath);
   const mrData = await gitlabFetch(settings, `projects/${encoded}/merge_requests/${mr.mrIid}`);
   const description = mrData.description || '';
+  const sourceBranch = mrData.source_branch || '';
   const pattern = new RegExp(settings.jiraPattern || '[A-Z][A-Z0-9]+-\\d+');
-  const match = description.match(pattern);
+  const match = description.match(pattern) || sourceBranch.match(pattern);
   if (!match) return null;
 
   const ticketId = match[0];
-  addProgress(`Found ${ticketId} in MR !${mr.mrIid} description, updating title...`);
+  const source = description.match(pattern) ? 'description' : 'source branch';
+  addProgress(`Found ${ticketId} in MR !${mr.mrIid} ${source}, updating title...`);
   const newTitle = `${ticketId} ${mrData.title}`;
   await gitlabFetch(settings, `projects/${encoded}/merge_requests/${mr.mrIid}`, {
     method: 'PUT',
