@@ -11,14 +11,12 @@
 
       const title = titleEl.textContent.trim();
       const match = title.match(JIRA_PATTERN);
-      if (!match) return;
-
       const mrLink = titleEl.getAttribute('href');
       const iidMatch = mrLink ? mrLink.match(/merge_requests\/(\d+)/) : null;
 
       results.push({
         title,
-        jiraTicket: match[0],
+        jiraTicket: match ? match[0] : null,
         mrIid: iidMatch ? iidMatch[1] : null,
         mrUrl: mrLink
       });

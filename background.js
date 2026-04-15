@@ -101,12 +101,41 @@ function enqueue(mrs, projectPath) {
   return added;
 }
 
+async function resolveJiraTicket(settings, projectPath, mr) {
+  if (mr.jiraTicket) return mr.jiraTicket;
+
+  const encoded = encodeURIComponent(projectPath);
+  const mrData = await gitlabFetch(settings, `projects/${encoded}/merge_requests/${mr.mrIid}`);
+  const description = mrData.description || '';
+  const pattern = new RegExp(settings.jiraPattern || '[A-Z][A-Z0-9]+-\\d+');
+  const match = description.match(pattern);
+  if (!match) return null;
+
+  const ticketId = match[0];
+  addProgress(`Found ${ticketId} in MR !${mr.mrIid} description, updating title...`);
+  const newTitle = `${ticketId} ${mrData.title}`;
+  await gitlabFetch(settings, `projects/${encoded}/merge_requests/${mr.mrIid}`, {
+    method: 'PUT',
+    body: JSON.stringify({ title: newTitle })
+  });
+  addProgress(`Updated MR !${mr.mrIid} title to: ${newTitle}`);
+  return ticketId;
+}
+
 async function syncLabelsForMR(settings, projectPath, mr) {
   const result = { mr: mr.title, jiraTicket: mr.jiraTicket, status: 'pending', labels: [], errors: [] };
 
   try {
-    addProgress(`Fetching Jira labels for ${mr.jiraTicket}...`);
-    const jiraLabels = await getJiraLabels(settings, mr.jiraTicket);
+    const ticketId = await resolveJiraTicket(settings, projectPath, mr);
+    if (!ticketId) {
+      result.status = 'skipped';
+      result.message = 'No Jira ticket found in title or description';
+      return result;
+    }
+    result.jiraTicket = ticketId;
+
+    addProgress(`Fetching Jira labels for ${ticketId}...`);
+    const jiraLabels = await getJiraLabels(settings, ticketId);
 
     if (jiraLabels.length === 0) {
       result.status = 'skipped';
