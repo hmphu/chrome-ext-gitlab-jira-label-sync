@@ -6,6 +6,7 @@ const resultsEl = document.getElementById('results');
 const optionsLink = document.getElementById('options-link');
 
 let extractedData = null;
+let pollTimer = null;
 
 function setStatus(message, type) {
   statusEl.textContent = message;
@@ -28,11 +29,14 @@ function renderMRList(mrs) {
   });
 }
 
-function addProgressLog(message) {
-  const entry = document.createElement('div');
-  entry.className = 'log-entry';
-  entry.textContent = message;
-  progressEl.appendChild(entry);
+function renderProgress(logs) {
+  progressEl.innerHTML = '';
+  logs.forEach(msg => {
+    const entry = document.createElement('div');
+    entry.className = 'log-entry';
+    entry.textContent = msg;
+    progressEl.appendChild(entry);
+  });
   progressEl.scrollTop = progressEl.scrollHeight;
 }
 
@@ -56,18 +60,60 @@ function renderResults(results) {
   });
 }
 
-async function init() {
-  try {
-    const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-    if (!tab || !tab.url || !tab.url.includes('merge_requests')) {
-      setStatus('Navigate to a GitLab merge requests page to use this extension.', 'info');
-      syncBtn.disabled = true;
-      return;
-    }
+function startPolling() {
+  if (pollTimer) return;
+  pollTimer = setInterval(async () => {
+    try {
+      const state = await chrome.runtime.sendMessage({ action: 'getSyncState' });
+      renderProgress(state.progress);
 
-    const response = await chrome.tabs.sendMessage(tab.id, { action: 'extractMRs' });
-    if (!response || !response.mrs || response.mrs.length === 0) {
-      setStatus('No merge requests with Jira ticket IDs found on this page.', 'info');
+      if (state.running) {
+        setStatus(`Syncing... ${state.completed}/${state.total}`, 'info');
+        syncBtn.disabled = true;
+        syncBtn.textContent = `Syncing ${state.completed}/${state.total}...`;
+      } else {
+        clearInterval(pollTimer);
+        pollTimer = null;
+
+        if (state.error) {
+          setStatus(state.error, 'error');
+        } else if (state.results.length > 0) {
+          const successCount = state.results.filter(r => r.status === 'success').length;
+          setStatus(`Sync complete: ${successCount}/${state.results.length} succeeded.`, 'success');
+          renderResults(state.results);
+        }
+
+        syncBtn.disabled = false;
+        syncBtn.textContent = 'Sync Labels';
+      }
+    } catch (e) {}
+  }, 500);
+}
+
+async function init() {
+  const state = await chrome.runtime.sendMessage({ action: 'getSyncState' });
+  if (state.running) {
+    setStatus(`Sync in progress... ${state.completed}/${state.total}`, 'info');
+    syncBtn.disabled = true;
+    syncBtn.textContent = `Syncing ${state.completed}/${state.total}...`;
+    renderProgress(state.progress);
+    startPolling();
+    return;
+  }
+
+  if (state.results.length > 0 && state.progress.length > 0) {
+    const successCount = state.results.filter(r => r.status === 'success').length;
+    setStatus(`Last sync: ${successCount}/${state.results.length} succeeded.`, 'success');
+    renderProgress(state.progress);
+    renderResults(state.results);
+  }
+
+  try {
+    const response = await chrome.runtime.sendMessage({ action: 'extractFromTab' });
+    if (!response || response.error || !response.mrs || response.mrs.length === 0) {
+      if (!state.results.length) {
+        setStatus('Navigate to a GitLab merge requests page to use this extension.', 'info');
+      }
       syncBtn.disabled = true;
       return;
     }
@@ -76,7 +122,9 @@ async function init() {
     setStatus(`Found ${response.mrs.length} merge request(s) with Jira tickets.`, 'info');
     renderMRList(response.mrs);
   } catch (e) {
-    setStatus('Could not read page. Try refreshing the GitLab page.', 'error');
+    if (!state.results.length) {
+      setStatus('Could not read page. Try refreshing the GitLab page.', 'error');
+    }
     syncBtn.disabled = true;
   }
 }
@@ -85,35 +133,12 @@ syncBtn.addEventListener('click', async () => {
   if (!extractedData) return;
 
   syncBtn.disabled = true;
-  syncBtn.textContent = 'Syncing...';
+  syncBtn.textContent = 'Starting...';
   progressEl.innerHTML = '';
   resultsEl.innerHTML = '';
 
-  chrome.runtime.onMessage.addListener((msg) => {
-    if (msg.action === 'progressUpdate') {
-      addProgressLog(msg.message);
-    }
-  });
-
-  try {
-    const result = await chrome.runtime.sendMessage({
-      action: 'syncLabels',
-      data: extractedData
-    });
-
-    if (result.error) {
-      setStatus(result.error, 'error');
-    } else if (result.results) {
-      const successCount = result.results.filter(r => r.status === 'success').length;
-      setStatus(`Sync complete: ${successCount}/${result.results.length} succeeded.`, 'success');
-      renderResults(result.results);
-    }
-  } catch (e) {
-    setStatus(`Sync failed: ${e.message}`, 'error');
-  }
-
-  syncBtn.disabled = false;
-  syncBtn.textContent = 'Sync Labels';
+  await chrome.runtime.sendMessage({ action: 'startSync', data: extractedData });
+  startPolling();
 });
 
 optionsLink.addEventListener('click', (e) => {
