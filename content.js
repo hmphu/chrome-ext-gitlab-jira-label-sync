@@ -32,6 +32,14 @@
     return pathMatch ? pathMatch[1] : null;
   }
 
+  function autoSend() {
+    const mrs = extractMergeRequests();
+    const projectPath = getProjectPath();
+    if (mrs.length > 0 && projectPath) {
+      chrome.runtime.sendMessage({ action: 'addMRs', data: { mrs, projectPath } }).catch(() => {});
+    }
+  }
+
   chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     if (request.action === 'extractMRs') {
       const mrs = extractMergeRequests();
@@ -40,4 +48,6 @@
     }
     return true;
   });
+
+  autoSend();
 })();

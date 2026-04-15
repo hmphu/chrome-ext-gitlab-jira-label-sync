@@ -7,6 +7,9 @@ let syncState = {
   error: null
 };
 
+let queue = [];
+let seen = new Set();
+
 async function getSettings() {
   return chrome.storage.sync.get({
     gitlabToken: '',
@@ -81,6 +84,23 @@ function addProgress(msg) {
   chrome.runtime.sendMessage({ action: 'progressUpdate', message: msg }).catch(() => {});
 }
 
+function enqueue(mrs, projectPath) {
+  let added = 0;
+  for (const mr of mrs) {
+    if (!mr.mrIid) continue;
+    const key = `${projectPath}::${mr.mrIid}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    queue.push({ ...mr, projectPath });
+    added++;
+  }
+  if (added > 0) {
+    syncState.total += added;
+    addProgress(`+${added} new MR(s) queued (total: ${syncState.total})`);
+  }
+  return added;
+}
+
 async function syncLabelsForMR(settings, projectPath, mr) {
   const result = { mr: mr.title, jiraTicket: mr.jiraTicket, status: 'pending', labels: [], errors: [] };
 
@@ -123,54 +143,75 @@ async function syncLabelsForMR(settings, projectPath, mr) {
   return result;
 }
 
-async function runSync(data) {
+let cachedSettings = null;
+
+async function drainQueue() {
   if (syncState.running) return;
+  if (queue.length === 0) return;
 
-  syncState = { running: true, progress: [], results: [], total: 0, completed: 0, error: null };
+  syncState.running = true;
+  syncState.error = null;
 
-  const settings = await getSettings();
+  if (!cachedSettings) {
+    cachedSettings = await getSettings();
+  }
 
-  if (!settings.gitlabToken || !settings.gitlabBaseUrl || !settings.jiraBaseUrl || !settings.jiraEmail || !settings.jiraToken) {
+  while (queue.length > 0) {
+    const item = queue.shift();
+    const result = await syncLabelsForMR(cachedSettings, item.projectPath, item);
+    syncState.results.push(result);
+    syncState.completed++;
+  }
+
+  addProgress('Queue drained. Waiting for new MRs...');
+  syncState.running = false;
+}
+
+async function runSync(data) {
+  cachedSettings = await getSettings();
+
+  if (!cachedSettings.gitlabToken || !cachedSettings.gitlabBaseUrl || !cachedSettings.jiraBaseUrl || !cachedSettings.jiraEmail || !cachedSettings.jiraToken) {
     syncState.error = 'Please configure your API credentials in the extension options.';
     syncState.running = false;
     return;
   }
 
-  const { mrs, projectPath } = data;
-  if (!mrs || mrs.length === 0) {
-    syncState.error = 'No merge requests with Jira tickets found on this page.';
-    syncState.running = false;
-    return;
-  }
-
-  if (!projectPath) {
-    syncState.error = 'Could not determine GitLab project path from the current page.';
-    syncState.running = false;
-    return;
-  }
-
-  syncState.total = mrs.length;
-  addProgress(`Starting sync for ${mrs.length} merge request(s)...`);
-
-  for (const mr of mrs) {
-    if (!mr.mrIid) {
-      syncState.results.push({ mr: mr.title, jiraTicket: mr.jiraTicket, status: 'skipped', message: 'Could not determine MR IID' });
-      syncState.completed++;
-      continue;
+  if (data) {
+    const { mrs, projectPath } = data;
+    if (!mrs || mrs.length === 0) {
+      syncState.error = 'No merge requests with Jira tickets found on this page.';
+      syncState.running = false;
+      return;
     }
-    const result = await syncLabelsForMR(settings, projectPath, mr);
-    syncState.results.push(result);
-    syncState.completed++;
+    if (!projectPath) {
+      syncState.error = 'Could not determine GitLab project path from the current page.';
+      syncState.running = false;
+      return;
+    }
+    enqueue(mrs, projectPath);
   }
 
-  addProgress('Sync complete.');
-  syncState.running = false;
+  addProgress(`Starting sync...`);
+  drainQueue();
 }
 
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   if (request.action === 'startSync') {
+    syncState = { running: false, progress: [], results: [], total: 0, completed: 0, error: null };
+    queue = [];
+    seen = new Set();
     runSync(request.data);
     sendResponse({ started: true });
+    return false;
+  }
+
+  if (request.action === 'addMRs') {
+    const { mrs, projectPath } = request.data;
+    const added = enqueue(mrs, projectPath);
+    if (added > 0 && !syncState.running && seen.size > 0) {
+      drainQueue();
+    }
+    sendResponse({ queued: added });
     return false;
   }
 
