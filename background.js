@@ -9,6 +9,7 @@ let syncState = {
 
 let queue = [];
 let seen = new Set();
+let syncStarted = false;
 
 async function getSettings() {
   return chrome.storage.sync.get({
@@ -229,6 +230,7 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     syncState = { running: false, progress: [], results: [], total: 0, completed: 0, error: null };
     queue = [];
     seen = new Set();
+    syncStarted = true;
     runSync(request.data);
     sendResponse({ started: true });
     return false;
@@ -237,7 +239,7 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   if (request.action === 'addMRs') {
     const { mrs, projectPath } = request.data;
     const added = enqueue(mrs, projectPath);
-    if (added > 0 && !syncState.running && seen.size > 0) {
+    if (added > 0 && syncStarted && !syncState.running) {
       drainQueue();
     }
     sendResponse({ queued: added });
