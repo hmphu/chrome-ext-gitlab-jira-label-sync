@@ -109,7 +109,8 @@ async function resolveJiraTicket(settings, projectPath, mr) {
   const mrData = await gitlabFetch(settings, `projects/${encoded}/merge_requests/${mr.mrIid}`);
   const description = mrData.description || '';
   const sourceBranch = mrData.source_branch || '';
-  const pattern = new RegExp(settings.jiraPattern || '[A-Z][A-Z0-9]+-\\d+');
+  const rawPattern = (settings.jiraPattern || '[A-Z][A-Z0-9]+-\\d+').replace(/^\^/, '').replace(/\$$/, '');
+  const pattern = new RegExp(rawPattern);
   const match = description.match(pattern) || sourceBranch.match(pattern);
   if (!match) return null;
 
