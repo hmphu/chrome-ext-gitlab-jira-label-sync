@@ -6,18 +6,27 @@
   }
 
   function extractSingleMR() {
-    const titleEl = document.querySelector('.detail-page-header .title, .merge-request-details .title, [data-testid="title-content"], .page-title');
-    if (!titleEl) return null;
-
-    const title = titleEl.textContent.trim();
-    const match = title.match(JIRA_PATTERN);
     const iidMatch = window.location.pathname.match(/merge_requests\/(\d+)/);
+    if (!iidMatch) return null;
+
+    const titleEl = document.querySelector(
+      '.detail-page-header .title, ' +
+      '.merge-request-details .title, ' +
+      '[data-testid="title-content"], ' +
+      '.page-title, ' +
+      '.title-container .title, ' +
+      '.issue-title-text, ' +
+      'h2.gl-font-size-h-display'
+    );
+    const title = titleEl ? titleEl.textContent.trim() : '';
+    const match = title ? title.match(JIRA_PATTERN) : null;
 
     return {
-      title,
+      title: title || `MR !${iidMatch[1]}`,
       jiraTicket: match ? match[0] : null,
-      mrIid: iidMatch ? iidMatch[1] : null,
-      mrUrl: window.location.pathname
+      mrIid: iidMatch[1],
+      mrUrl: window.location.pathname,
+      needsResolve: !match
     };
   }
 
