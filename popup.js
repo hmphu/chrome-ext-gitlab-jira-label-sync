@@ -91,11 +91,12 @@ function renderJiraResults(data) {
   setStatus(`Found ${data.mrs.length} merge request(s) for ${data.ticketId}`, 'success');
 
   data.mrs.forEach(mr => {
+    const isRelease = /^releases\//.test(mr.targetBranch);
     const item = document.createElement('div');
-    item.className = 'mr-lookup-item';
+    item.className = 'mr-lookup-item' + (isRelease ? ' release-target' : '');
     item.innerHTML = `
       <div class="mr-title"><a href="${mr.webUrl}" target="_blank">!${mr.mrIid} ${mr.title}</a></div>
-      <div class="mr-branches"><code>${mr.sourceBranch}</code> → <code>${mr.targetBranch}</code></div>
+      <div class="mr-branches"><code>${mr.sourceBranch}</code> → <code class="target">${mr.targetBranch}</code></div>
       <span class="mr-state ${mr.state}">${mr.state}${mr.mergedAt ? ' (' + new Date(mr.mergedAt).toLocaleDateString() + ')' : ''}</span>
       <span style="font-size:10px;color:#888;margin-left:4px">${mr.projectPath}</span>
     `;

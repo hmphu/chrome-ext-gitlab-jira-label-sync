@@ -237,3 +237,14 @@ h1 {
   background: #fdecea;
   color: #c62828;
 }
+
+.mr-lookup-item.release-target {
+  border: 1px solid #f44336;
+  background: #fff5f5;
+}
+
+.mr-lookup-item.release-target .mr-branches code.target {
+  background: #fdecea;
+  color: #c62828;
+  font-weight: 600;
+}
