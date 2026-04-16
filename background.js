@@ -103,19 +103,27 @@ function enqueue(mrs, projectPath) {
 }
 
 async function resolveJiraTicket(settings, projectPath, mr) {
+  const rawPattern = (settings.jiraPattern || '[A-Z][A-Z0-9]+-\\d+').replace(/^\^/, '').replace(/\$$/, '');
+  const pattern = new RegExp(rawPattern);
+
   if (mr.jiraTicket) return mr.jiraTicket;
 
   const encoded = encodeURIComponent(projectPath);
   const mrData = await gitlabFetch(settings, `projects/${encoded}/merge_requests/${mr.mrIid}`);
+  const title = mrData.title || '';
   const description = mrData.description || '';
   const sourceBranch = mrData.source_branch || '';
-  const rawPattern = (settings.jiraPattern || '[A-Z][A-Z0-9]+-\\d+').replace(/^\^/, '').replace(/\$$/, '');
-  const pattern = new RegExp(rawPattern);
-  const match = description.match(pattern) || sourceBranch.match(pattern);
+
+  const titleMatch = title.match(pattern);
+  if (titleMatch) return titleMatch[0];
+
+  const descMatch = description.match(pattern);
+  const branchMatch = sourceBranch.match(pattern);
+  const match = descMatch || branchMatch;
   if (!match) return null;
 
   const ticketId = match[0];
-  const source = description.match(pattern) ? 'description' : 'source branch';
+  const source = descMatch ? 'description' : 'source branch';
   addProgress(`Found ${ticketId} in MR !${mr.mrIid} ${source}, updating title...`);
   const newTitle = `${ticketId} ${mrData.title}`;
   await gitlabFetch(settings, `projects/${encoded}/merge_requests/${mr.mrIid}`, {
