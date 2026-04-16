@@ -92,8 +92,9 @@ function renderJiraResults(data) {
 
   data.mrs.forEach(mr => {
     const isRelease = /^releases\//.test(mr.targetBranch);
+    const isOpen = mr.state === 'opened';
     const item = document.createElement('div');
-    item.className = 'mr-lookup-item' + (isRelease ? ' release-target' : '');
+    item.className = 'mr-lookup-item' + (isRelease ? ' release-target' : '') + (isOpen ? ' open-mr' : '');
     item.innerHTML = `
       <div class="mr-title"><a href="${mr.webUrl}" target="_blank">!${mr.mrIid} ${mr.title}</a></div>
       <div class="mr-branches"><code>${mr.sourceBranch}</code> → <code class="target">${mr.targetBranch}</code></div>
