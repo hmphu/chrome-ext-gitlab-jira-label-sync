@@ -170,7 +170,23 @@ async function initGitlab(context) {
 async function initJira(ticketId) {
   showJiraView();
   jiraTicketEl.textContent = ticketId;
-  setStatus(`Viewing Jira ticket: ${ticketId}`, 'info');
+
+  const settings = await chrome.storage.sync.get({ autoLookup: true });
+  if (settings.autoLookup) {
+    lookupBtn.disabled = true;
+    lookupBtn.textContent = 'Searching...';
+    setStatus(`Searching GitLab for ${ticketId}...`, 'info');
+    try {
+      const result = await chrome.runtime.sendMessage({ action: 'lookupMRs', ticketId });
+      renderJiraResults(result);
+    } catch (e) {
+      setStatus(`Lookup failed: ${e.message}`, 'error');
+    }
+    lookupBtn.disabled = false;
+    lookupBtn.textContent = 'Lookup Merge Requests';
+  } else {
+    setStatus(`Viewing Jira ticket: ${ticketId}`, 'info');
+  }
 }
 
 async function init() {

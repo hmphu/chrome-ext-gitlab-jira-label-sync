@@ -11,18 +11,21 @@ async function loadSettings() {
     jiraBaseUrl: '',
     jiraEmail: '',
     jiraToken: '',
-    jiraPattern: '[A-Z][A-Z0-9]+-\\d+'
+    jiraPattern: '[A-Z][A-Z0-9]+-\\d+',
+    autoLookup: true
   });
 
   fields.forEach(f => {
     document.getElementById(f).value = settings[f];
   });
+  document.getElementById('autoLookup').checked = settings.autoLookup;
 }
 
 form.addEventListener('submit', async (e) => {
   e.preventDefault();
   const data = {};
   fields.forEach(f => { data[f] = document.getElementById(f).value.trim(); });
+  data.autoLookup = document.getElementById('autoLookup').checked;
 
   await chrome.storage.sync.set(data);
   saveStatus.textContent = 'Saved!';
