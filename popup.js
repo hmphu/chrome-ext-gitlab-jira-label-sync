@@ -82,11 +82,15 @@ function renderMRItems(container, mrs) {
     const item = document.createElement('div');
     item.className = 'mr-lookup-item' + (isRelease ? ' release-target' : '') + (isOpen ? ' open-mr' : '');
     item.innerHTML = `
-      <div class="mr-title"><a href="${mr.webUrl}" target="_blank">!${mr.mrIid} ${mr.title}</a></div>
+      <div class="mr-title"><a href="#" data-url="${mr.webUrl}">!${mr.mrIid} ${mr.title}</a></div>
       <div class="mr-branches"><code>${mr.sourceBranch}</code> → <code class="target">${mr.targetBranch}</code></div>
       <span class="mr-state ${mr.state}">${mr.state}${mr.mergedAt ? (() => { const d = new Date(mr.mergedAt); const today = new Date(); const isToday = d.toDateString() === today.toDateString(); return ' (' + (isToday ? 'Today' : d.toLocaleDateString()) + ' ' + d.toLocaleTimeString([], {hour: '2-digit', minute: '2-digit'}) + ')'; })() : ''}</span>
       <span style="font-size:10px;color:#888;margin-left:4px">${mr.projectPath}</span>
     `;
+    item.querySelector('a[data-url]').addEventListener('click', (e) => {
+      e.preventDefault();
+      chrome.tabs.create({ url: mr.webUrl, active: false });
+    });
     container.appendChild(item);
   });
 }
