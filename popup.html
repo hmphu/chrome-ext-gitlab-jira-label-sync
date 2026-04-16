@@ -8,10 +8,20 @@
   <div class="container">
     <h1>GitLab Jira Label Sync</h1>
     <div id="status" class="status"></div>
-    <div id="mr-list" class="mr-list"></div>
-    <button id="sync-btn" class="btn-primary">Sync Labels</button>
-    <div id="progress" class="progress"></div>
-    <div id="results" class="results"></div>
+
+    <div id="gitlab-view">
+      <div id="mr-list" class="mr-list"></div>
+      <button id="sync-btn" class="btn-primary">Sync Labels</button>
+      <div id="progress" class="progress"></div>
+      <div id="results" class="results"></div>
+    </div>
+
+    <div id="jira-view" style="display:none">
+      <div id="jira-ticket" class="jira-ticket"></div>
+      <button id="lookup-btn" class="btn-primary">Lookup Merge Requests</button>
+      <div id="jira-results" class="results"></div>
+    </div>
+
     <div class="footer">
       <a href="#" id="options-link">Settings</a>
     </div>

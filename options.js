@@ -1,12 +1,13 @@
 const form = document.getElementById('settings-form');
 const saveStatus = document.getElementById('save-status');
 
-const fields = ['gitlabBaseUrl', 'gitlabToken', 'jiraBaseUrl', 'jiraEmail', 'jiraToken', 'jiraPattern'];
+const fields = ['gitlabBaseUrl', 'gitlabToken', 'gitlabProjects', 'jiraBaseUrl', 'jiraEmail', 'jiraToken', 'jiraPattern'];
 
 async function loadSettings() {
   const settings = await chrome.storage.sync.get({
     gitlabBaseUrl: '',
     gitlabToken: '',
+    gitlabProjects: '',
     jiraBaseUrl: '',
     jiraEmail: '',
     jiraToken: '',

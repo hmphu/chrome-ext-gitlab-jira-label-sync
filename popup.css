@@ -169,3 +169,71 @@ h1 {
 .footer a:hover {
   text-decoration: underline;
 }
+
+.jira-ticket {
+  padding: 8px 12px;
+  background: #f3e8fd;
+  border-radius: 6px;
+  margin-bottom: 12px;
+  font-size: 13px;
+  font-weight: 600;
+  color: #6b4fbb;
+}
+
+.mr-lookup-item {
+  padding: 8px;
+  border: 1px solid #e0e0e0;
+  border-radius: 4px;
+  margin-bottom: 6px;
+  font-size: 12px;
+}
+
+.mr-lookup-item .mr-title {
+  font-weight: 500;
+  margin-bottom: 4px;
+}
+
+.mr-lookup-item .mr-title a {
+  color: #1565c0;
+  text-decoration: none;
+}
+
+.mr-lookup-item .mr-title a:hover {
+  text-decoration: underline;
+}
+
+.mr-lookup-item .mr-branches {
+  font-size: 11px;
+  color: #555;
+  margin-bottom: 2px;
+}
+
+.mr-lookup-item .mr-branches code {
+  background: #f0f0f0;
+  padding: 1px 4px;
+  border-radius: 3px;
+  font-size: 10px;
+}
+
+.mr-lookup-item .mr-state {
+  display: inline-block;
+  padding: 1px 6px;
+  border-radius: 3px;
+  font-size: 10px;
+  font-weight: 500;
+}
+
+.mr-lookup-item .mr-state.merged {
+  background: #e8f5e9;
+  color: #2e7d32;
+}
+
+.mr-lookup-item .mr-state.opened {
+  background: #e3f2fd;
+  color: #1565c0;
+}
+
+.mr-lookup-item .mr-state.closed {
+  background: #fdecea;
+  color: #c62828;
+}

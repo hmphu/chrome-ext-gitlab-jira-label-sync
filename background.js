@@ -18,7 +18,8 @@ async function getSettings() {
     jiraBaseUrl: '',
     jiraEmail: '',
     jiraToken: '',
-    jiraPattern: '[A-Z][A-Z0-9]+-\\d+'
+    jiraPattern: '[A-Z][A-Z0-9]+-\\d+',
+    gitlabProjects: ''
   });
 }
 
@@ -236,6 +237,46 @@ async function runSync(data) {
   drainQueue();
 }
 
+let jiraTicketOnPage = null;
+
+async function searchGitlabMRsForTicket(settings, ticketId) {
+  const projects = (settings.gitlabProjects || '').split('\n').map(p => p.trim()).filter(Boolean);
+  const results = [];
+
+  for (const projectPath of projects) {
+    const encoded = encodeURIComponent(projectPath);
+    try {
+      const mrs = await gitlabFetch(settings, `projects/${encoded}/merge_requests?search=${ticketId}&per_page=100`);
+      for (const mr of mrs) {
+        const rawPattern = (settings.jiraPattern || '[A-Z][A-Z0-9]+-\\d+').replace(/^\^/, '').replace(/\$$/, '');
+        const pattern = new RegExp(rawPattern);
+        const titleMatch = (mr.title || '').match(pattern);
+        const descMatch = (mr.description || '').match(pattern);
+        const branchMatch = (mr.source_branch || '').match(pattern);
+        const foundTicket = (titleMatch && titleMatch[0]) || (descMatch && descMatch[0]) || (branchMatch && branchMatch[0]);
+        if (foundTicket === ticketId) {
+          results.push({
+            title: mr.title,
+            mrIid: mr.iid,
+            projectPath,
+            sourceBranch: mr.source_branch,
+            targetBranch: mr.target_branch,
+            state: mr.state,
+            mergedAt: mr.merged_at,
+            webUrl: mr.web_url
+          });
+        }
+      }
+    } catch (e) {}
+  }
+
+  if (projects.length === 0) {
+    return { error: 'No GitLab projects configured. Add project paths in Settings.' };
+  }
+
+  return { ticketId, mrs: results };
+}
+
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   if (request.action === 'startSync') {
     syncState = { running: false, progress: [], results: [], total: 0, completed: 0, error: null };
@@ -269,6 +310,50 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
         sendResponse(response || { error: 'Could not read page' });
       });
     });
+    return true;
+  }
+
+  if (request.action === 'jiraPageDetected') {
+    jiraTicketOnPage = request.ticketId;
+    sendResponse({ ok: true });
+    return false;
+  }
+
+  if (request.action === 'getPageContext') {
+    chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
+      if (!tabs[0]) { sendResponse({ type: 'unknown' }); return; }
+      const url = tabs[0].url || '';
+      if (url.includes('/browse/') && url.includes('atlassian.net')) {
+        chrome.tabs.sendMessage(tabs[0].id, { action: 'getJiraTicket' }, (response) => {
+          if (response && response.ticketId) {
+            sendResponse({ type: 'jira', ticketId: response.ticketId });
+          } else if (jiraTicketOnPage) {
+            sendResponse({ type: 'jira', ticketId: jiraTicketOnPage });
+          } else {
+            sendResponse({ type: 'unknown' });
+          }
+        });
+      } else if (url.includes('merge_requests')) {
+        chrome.tabs.sendMessage(tabs[0].id, { action: 'extractMRs' }, (response) => {
+          sendResponse({ type: 'gitlab', ...(response || {}) });
+        });
+      } else {
+        sendResponse({ type: 'unknown' });
+      }
+    });
+    return true;
+  }
+
+  if (request.action === 'lookupMRs') {
+    (async () => {
+      const settings = await getSettings();
+      if (!settings.gitlabToken || !settings.gitlabBaseUrl) {
+        sendResponse({ error: 'Please configure GitLab credentials in Settings.' });
+        return;
+      }
+      const result = await searchGitlabMRsForTicket(settings, request.ticketId);
+      sendResponse(result);
+    })();
     return true;
   }
 });

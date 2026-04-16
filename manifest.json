@@ -13,6 +13,11 @@
       "matches": ["https://*/*/-/merge_requests*"],
       "js": ["content.js"],
       "run_at": "document_idle"
+    },
+    {
+      "matches": ["https://*.atlassian.net/browse/*"],
+      "js": ["content-jira.js"],
+      "run_at": "document_idle"
     }
   ],
   "action": {
