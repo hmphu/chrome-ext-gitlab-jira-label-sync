@@ -97,7 +97,7 @@ function renderJiraResults(data) {
     item.innerHTML = `
       <div class="mr-title"><a href="${mr.webUrl}" target="_blank">!${mr.mrIid} ${mr.title}</a></div>
       <div class="mr-branches"><code>${mr.sourceBranch}</code> → <code class="target">${mr.targetBranch}</code></div>
-      <span class="mr-state ${mr.state}">${mr.state}${mr.mergedAt ? ' (' + new Date(mr.mergedAt).toLocaleDateString() + ')' : ''}</span>
+      <span class="mr-state ${mr.state}">${mr.state}${mr.mergedAt ? ' (' + new Date(mr.mergedAt).toLocaleDateString() + ' ' + new Date(mr.mergedAt).toLocaleTimeString([], {hour: '2-digit', minute: '2-digit'}) + ')' : ''}</span>
       <span style="font-size:10px;color:#888;margin-left:4px">${mr.projectPath}</span>
     `;
     jiraResultsEl.appendChild(item);
