@@ -253,3 +253,37 @@ h1 {
   border: 1px solid #ff9800;
   background: #fff8e1;
 }
+
+.lookup-section {
+  margin-bottom: 12px;
+}
+
+.lookup-section-header {
+  font-size: 12px;
+  font-weight: 600;
+  color: #6b4fbb;
+  padding: 4px 0;
+  margin-bottom: 4px;
+  border-bottom: 1px solid #e0e0e0;
+}
+
+.subtask-summary {
+  font-weight: 400;
+  color: #555;
+}
+
+.subtask-status {
+  font-weight: 400;
+  font-size: 10px;
+  background: #e0e0e0;
+  padding: 1px 5px;
+  border-radius: 3px;
+  color: #555;
+}
+
+.no-mrs {
+  font-size: 11px;
+  color: #999;
+  padding: 4px 8px;
+  font-style: italic;
+}

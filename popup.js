@@ -75,22 +75,8 @@ function renderResults(results) {
   });
 }
 
-function renderJiraResults(data) {
-  jiraResultsEl.innerHTML = '';
-
-  if (data.error) {
-    setStatus(data.error, 'error');
-    return;
-  }
-
-  if (!data.mrs || data.mrs.length === 0) {
-    setStatus(`No merge requests found for ${data.ticketId}`, 'info');
-    return;
-  }
-
-  setStatus(`Found ${data.mrs.length} merge request(s) for ${data.ticketId}`, 'success');
-
-  data.mrs.forEach(mr => {
+function renderMRItems(container, mrs) {
+  mrs.forEach(mr => {
     const isRelease = /^releases\//.test(mr.targetBranch);
     const isOpen = mr.state === 'opened';
     const item = document.createElement('div');
@@ -101,8 +87,52 @@ function renderJiraResults(data) {
       <span class="mr-state ${mr.state}">${mr.state}${mr.mergedAt ? (() => { const d = new Date(mr.mergedAt); const today = new Date(); const isToday = d.toDateString() === today.toDateString(); return ' (' + (isToday ? 'Today' : d.toLocaleDateString()) + ' ' + d.toLocaleTimeString([], {hour: '2-digit', minute: '2-digit'}) + ')'; })() : ''}</span>
       <span style="font-size:10px;color:#888;margin-left:4px">${mr.projectPath}</span>
     `;
-    jiraResultsEl.appendChild(item);
+    container.appendChild(item);
   });
+}
+
+function renderJiraResults(data) {
+  jiraResultsEl.innerHTML = '';
+
+  if (data.error) {
+    setStatus(data.error, 'error');
+    return;
+  }
+
+  const totalMRs = (data.mrs || []).length + (data.subtasks || []).reduce((sum, st) => sum + st.mrs.length, 0);
+  const subtaskCount = (data.subtasks || []).length;
+
+  if (totalMRs === 0 && subtaskCount === 0) {
+    setStatus(`No merge requests found for ${data.ticketId}`, 'info');
+    return;
+  }
+
+  setStatus(`Found ${totalMRs} MR(s) for ${data.ticketId}${subtaskCount > 0 ? ` + ${subtaskCount} subtask(s)` : ''}`, 'success');
+
+  if (data.mrs && data.mrs.length > 0) {
+    const section = document.createElement('div');
+    section.className = 'lookup-section';
+    section.innerHTML = `<div class="lookup-section-header">${data.ticketId}</div>`;
+    renderMRItems(section, data.mrs);
+    jiraResultsEl.appendChild(section);
+  }
+
+  if (data.subtasks) {
+    data.subtasks.forEach(st => {
+      const section = document.createElement('div');
+      section.className = 'lookup-section';
+      section.innerHTML = `<div class="lookup-section-header">${st.ticketId} <span class="subtask-summary">${st.summary}</span> <span class="subtask-status">${st.status}</span></div>`;
+      if (st.mrs.length > 0) {
+        renderMRItems(section, st.mrs);
+      } else {
+        const empty = document.createElement('div');
+        empty.className = 'no-mrs';
+        empty.textContent = 'No merge requests found';
+        section.appendChild(empty);
+      }
+      jiraResultsEl.appendChild(section);
+    });
+  }
 }
 
 function startPolling() {

@@ -351,8 +351,37 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
         sendResponse({ error: 'Please configure GitLab credentials in Settings.' });
         return;
       }
-      const result = await searchGitlabMRsForTicket(settings, request.ticketId);
-      sendResponse(result);
+      try {
+        const issue = await jiraFetch(settings, `issue/${request.ticketId}?fields=subtasks`);
+        const subtasks = (issue.fields.subtasks || []).map(st => ({
+          key: st.key,
+          summary: st.fields.summary,
+          status: st.fields.status.name
+        }));
+
+        const parentResult = await searchGitlabMRsForTicket(settings, request.ticketId);
+        if (parentResult.error) { sendResponse(parentResult); return; }
+
+        const subtaskResults = [];
+        for (const st of subtasks) {
+          const stResult = await searchGitlabMRsForTicket(settings, st.key);
+          subtaskResults.push({
+            ticketId: st.key,
+            summary: st.summary,
+            status: st.status,
+            mrs: stResult.mrs || []
+          });
+        }
+
+        sendResponse({
+          ticketId: request.ticketId,
+          mrs: parentResult.mrs || [],
+          subtasks: subtaskResults
+        });
+      } catch (e) {
+        const result = await searchGitlabMRsForTicket(settings, request.ticketId);
+        sendResponse({ ...result, subtasks: [] });
+      }
     })();
     return true;
   }
