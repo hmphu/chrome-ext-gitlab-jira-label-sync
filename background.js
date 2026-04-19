@@ -10,6 +10,74 @@ let syncState = {
 let queue = [];
 let seen = new Set();
 let syncStarted = false;
+let pendingBranchContext = { branch: null, projectPath: null };
+
+chrome.runtime.onInstalled.addListener(() => {
+  chrome.contextMenus.create({
+    id: 'setDefaultBranch',
+    title: 'Set as default branch',
+    contexts: ['page', 'link'],
+    documentUrlPatterns: ['https://*/*/-/tree/*', 'https://*/*/-/branches*']
+  });
+});
+
+chrome.contextMenus.onClicked.addListener((info, tab) => {
+  if (info.menuItemId !== 'setDefaultBranch') return;
+
+  chrome.tabs.sendMessage(tab.id, { action: 'getBranchContext' }, async (response) => {
+    let branch = pendingBranchContext.branch || (response && response.branch);
+    let projectPath = pendingBranchContext.projectPath || (response && response.projectPath);
+
+    if (info.linkUrl) {
+      const treeMatch = info.linkUrl.match(/\/-\/tree\/([^/?#]+)/);
+      if (treeMatch) branch = decodeURIComponent(treeMatch[1]);
+    }
+
+    if (!branch || !projectPath) {
+      chrome.notifications.create({
+        type: 'basic',
+        iconUrl: 'icons/icon48.png',
+        title: 'GitLab Toolbox',
+        message: 'Could not determine branch or project. Try right-clicking on the branch name link.'
+      });
+      return;
+    }
+
+    const settings = await getSettings();
+    if (!settings.gitlabToken || !settings.gitlabBaseUrl) {
+      chrome.notifications.create({
+        type: 'basic',
+        iconUrl: 'icons/icon48.png',
+        title: 'GitLab Toolbox',
+        message: 'Please configure GitLab credentials in Settings.'
+      });
+      return;
+    }
+
+    try {
+      const encoded = encodeURIComponent(projectPath);
+      await gitlabFetch(settings, `projects/${encoded}`, {
+        method: 'PUT',
+        body: JSON.stringify({ default_branch: branch })
+      });
+      chrome.notifications.create({
+        type: 'basic',
+        iconUrl: 'icons/icon48.png',
+        title: 'GitLab Toolbox',
+        message: `Default branch set to: ${branch}`
+      });
+    } catch (e) {
+      chrome.notifications.create({
+        type: 'basic',
+        iconUrl: 'icons/icon48.png',
+        title: 'GitLab Toolbox',
+        message: `Failed: ${e.message}`
+      });
+    }
+
+    pendingBranchContext = { branch: null, projectPath: null };
+  });
+});
 
 async function getSettings() {
   return chrome.storage.sync.get({
@@ -384,5 +452,14 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
       }
     })();
     return true;
+  }
+
+  if (request.action === 'setBranchContext') {
+    pendingBranchContext = {
+      branch: request.branch,
+      projectPath: request.projectPath
+    };
+    sendResponse({ ok: true });
+    return false;
   }
 });
