@@ -1,7 +1,7 @@
 (() => {
   function getBranchFromUrl() {
     const treeMatch = window.location.pathname.match(/\/-\/tree\/(.+)/);
-    if (treeMatch) return decodeURIComponent(treeMatch[1]).split('/')[0];
+    if (treeMatch) return decodeURIComponent(treeMatch[1]);
     return null;
   }
 
@@ -15,9 +15,9 @@
     const link = el.closest('a');
     if (!link) return null;
     const href = link.getAttribute('href') || '';
-    const treeMatch = href.match(/\/-\/tree\/([^/?#]+)/);
+    const treeMatch = href.match(/\/-\/tree\/(.+?)(?:\?|#|$)/);
     if (treeMatch) return decodeURIComponent(treeMatch[1]);
-    const commitMatch = href.match(/\/-\/commits\/([^/?#]+)/);
+    const commitMatch = href.match(/\/-\/commits\/(.+?)(?:\?|#|$)/);
     if (commitMatch) return decodeURIComponent(commitMatch[1]);
     return null;
   }

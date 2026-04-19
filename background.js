@@ -32,11 +32,11 @@ chrome.contextMenus.onClicked.addListener((info, tab) => {
   const projectMatch = pageUrl.match(/https?:\/\/[^/]+\/(.+?)\/-\//);
   if (projectMatch) projectPath = projectMatch[1];
 
-  const treeLinkMatch = linkUrl.match(/\/-\/tree\/([^/?#]+)/);
+  const treeLinkMatch = linkUrl.match(/\/-\/tree\/(.+?)(?:\?|#|$)/);
   if (treeLinkMatch) {
     branch = decodeURIComponent(treeLinkMatch[1]);
   } else {
-    const pageTreeMatch = pageUrl.match(/\/-\/tree\/([^/?#]+)/);
+    const pageTreeMatch = pageUrl.match(/\/-\/tree\/(.+?)(?:\?|#|$)/);
     if (pageTreeMatch) branch = decodeURIComponent(pageTreeMatch[1]);
   }
 
