@@ -10,39 +10,47 @@ let syncState = {
 let queue = [];
 let seen = new Set();
 let syncStarted = false;
-let pendingBranchContext = { branch: null, projectPath: null };
 
 chrome.runtime.onInstalled.addListener(() => {
   chrome.contextMenus.create({
     id: 'setDefaultBranch',
     title: 'Set as default branch',
     contexts: ['page', 'link'],
-    documentUrlPatterns: ['https://*/*/-/tree/*', 'https://*/*/-/branches*']
+    documentUrlPatterns: ['https://*/*/-/tree/*', 'https://*/*/-/branches*', 'https://*/*/-/commits/*']
   });
 });
 
 chrome.contextMenus.onClicked.addListener((info, tab) => {
   if (info.menuItemId !== 'setDefaultBranch') return;
 
-  chrome.tabs.sendMessage(tab.id, { action: 'getBranchContext' }, async (response) => {
-    let branch = pendingBranchContext.branch || (response && response.branch);
-    let projectPath = pendingBranchContext.projectPath || (response && response.projectPath);
+  const pageUrl = info.pageUrl || (tab && tab.url) || '';
+  const linkUrl = info.linkUrl || '';
 
-    if (info.linkUrl) {
-      const treeMatch = info.linkUrl.match(/\/-\/tree\/([^/?#]+)/);
-      if (treeMatch) branch = decodeURIComponent(treeMatch[1]);
-    }
+  let branch = null;
+  let projectPath = null;
 
-    if (!branch || !projectPath) {
-      chrome.notifications.create({
-        type: 'basic',
-        iconUrl: 'icons/icon48.png',
-        title: 'GitLab Toolbox',
-        message: 'Could not determine branch or project. Try right-clicking on the branch name link.'
-      });
-      return;
-    }
+  const projectMatch = pageUrl.match(/https?:\/\/[^/]+\/(.+?)\/-\//);
+  if (projectMatch) projectPath = projectMatch[1];
 
+  const treeLinkMatch = linkUrl.match(/\/-\/tree\/([^/?#]+)/);
+  if (treeLinkMatch) {
+    branch = decodeURIComponent(treeLinkMatch[1]);
+  } else {
+    const pageTreeMatch = pageUrl.match(/\/-\/tree\/([^/?#]+)/);
+    if (pageTreeMatch) branch = decodeURIComponent(pageTreeMatch[1]);
+  }
+
+  if (!branch || !projectPath) {
+    chrome.notifications.create({
+      type: 'basic',
+      iconUrl: 'icons/icon48.png',
+      title: 'GitLab Toolbox',
+      message: 'Could not determine branch or project. Navigate to a branch page or right-click a branch link.'
+    });
+    return;
+  }
+
+  (async () => {
     const settings = await getSettings();
     if (!settings.gitlabToken || !settings.gitlabBaseUrl) {
       chrome.notifications.create({
@@ -74,9 +82,7 @@ chrome.contextMenus.onClicked.addListener((info, tab) => {
         message: `Failed: ${e.message}`
       });
     }
-
-    pendingBranchContext = { branch: null, projectPath: null };
-  });
+  })();
 });
 
 async function getSettings() {
@@ -452,14 +458,5 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
       }
     })();
     return true;
-  }
-
-  if (request.action === 'setBranchContext') {
-    pendingBranchContext = {
-      branch: request.branch,
-      projectPath: request.projectPath
-    };
-    sendResponse({ ok: true });
-    return false;
   }
 });
