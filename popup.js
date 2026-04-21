@@ -75,6 +75,18 @@ function renderResults(results) {
   });
 }
 
+function getMissingReleaseMRAlert(ticketId, mrs) {
+  const hasRelease = mrs.some(mr => /^releases\//.test(mr.targetBranch));
+  const hasTesting = mrs.some(mr => mr.targetBranch === 'testing');
+  if (hasTesting && !hasRelease) {
+    const alert = document.createElement('div');
+    alert.className = 'missing-release-alert';
+    alert.textContent = `⚠ ${ticketId} has MR to testing but no MR to releases/*`;
+    return alert;
+  }
+  return null;
+}
+
 function renderMRItems(container, mrs) {
   mrs.forEach(mr => {
     const isRelease = /^releases\//.test(mr.targetBranch);
@@ -117,6 +129,8 @@ function renderJiraResults(data) {
     const section = document.createElement('div');
     section.className = 'lookup-section';
     section.innerHTML = `<div class="lookup-section-header">${data.ticketId}</div>`;
+    const alert = getMissingReleaseMRAlert(data.ticketId, data.mrs);
+    if (alert) section.appendChild(alert);
     renderMRItems(section, data.mrs);
     jiraResultsEl.appendChild(section);
   }
@@ -127,6 +141,8 @@ function renderJiraResults(data) {
       section.className = 'lookup-section';
       section.innerHTML = `<div class="lookup-section-header">${st.ticketId} <span class="subtask-summary">${st.summary}</span> <span class="subtask-status">${st.status}</span></div>`;
       if (st.mrs.length > 0) {
+        const alert = getMissingReleaseMRAlert(st.ticketId, st.mrs);
+        if (alert) section.appendChild(alert);
         renderMRItems(section, st.mrs);
       } else {
         const empty = document.createElement('div');
