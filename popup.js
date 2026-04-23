@@ -303,4 +303,34 @@ optionsLink.addEventListener('click', (e) => {
   chrome.runtime.openOptionsPage();
 });
 
+document.getElementById('create-mr-btn').addEventListener('click', async (e) => {
+  e.preventDefault();
+  const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+  if (!tab || !tab.url) return;
+
+  const projectMatch = tab.url.match(/https?:\/\/([^/]+)\/(.+?)\/-\//);
+  const rootMatch = !projectMatch && tab.url.match(/https?:\/\/([^/]+)\/(.+?)(?:\?|#|$)/);
+  const host = projectMatch ? projectMatch[1] : (rootMatch ? rootMatch[1] : null);
+  const projectPath = projectMatch ? projectMatch[2] : (rootMatch ? rootMatch[2].replace(/\/$/, '') : null);
+
+  if (!host || !projectPath) {
+    setStatus('Navigate to a GitLab project page first.', 'error');
+    return;
+  }
+
+  try {
+    const settings = await chrome.storage.sync.get({ gitlabToken: '', gitlabBaseUrl: '' });
+    const encoded = encodeURIComponent(projectPath);
+    const res = await fetch(`${settings.gitlabBaseUrl.replace(/\/$/, '')}/api/v4/projects/${encoded}`, {
+      headers: { 'PRIVATE-TOKEN': settings.gitlabToken }
+    });
+    const project = await res.json();
+    const defaultBranch = project.default_branch || 'main';
+    const mrUrl = `https://${host}/${projectPath}/-/merge_requests/new?merge_request[source_branch]=${encodeURIComponent(defaultBranch)}&merge_request[target_branch]=testing`;
+    chrome.tabs.create({ url: mrUrl, active: true });
+  } catch (e) {
+    setStatus(`Failed to create MR link: ${e.message}`, 'error');
+  }
+});
+
 init();
