@@ -146,8 +146,8 @@ async function createGitlabLabel(settings, projectPath, labelName) {
 async function addLabelsToMR(settings, projectPath, mrIid, labels) {
   const encoded = encodeURIComponent(projectPath);
   const mr = await gitlabFetch(settings, `projects/${encoded}/merge_requests/${mrIid}`);
-  const existingLabels = mr.labels || [];
-  const allLabels = [...new Set([...existingLabels, ...labels])];
+  const existingLabels = (mr.labels || []).filter(l => !labels.includes(l));
+  const allLabels = [...labels, ...existingLabels];
 
   return gitlabFetch(settings, `projects/${encoded}/merge_requests/${mrIid}`, {
     method: 'PUT',
@@ -233,9 +233,19 @@ async function syncLabelsForMR(settings, projectPath, mr) {
     result.labels = jiraLabels;
     addProgress(`Found ${jiraLabels.length} labels: ${jiraLabels.join(', ')}`);
 
+    const encoded = encodeURIComponent(projectPath);
+    const mrData = await gitlabFetch(settings, `projects/${encoded}/merge_requests/${mr.mrIid}`);
+    const labelsToApply = mrData.target_branch === 'testing'
+      ? ['Testing', ...jiraLabels.filter(l => l !== 'Testing')]
+      : jiraLabels;
+
+    if (mrData.target_branch === 'testing') {
+      addProgress(`Target is testing — prepending Testing label`);
+    }
+
     const existingLabels = await getGitlabProjectLabels(settings, projectPath);
 
-    for (const label of jiraLabels) {
+    for (const label of labelsToApply) {
       if (!existingLabels.includes(label)) {
         addProgress(`Creating GitLab label: ${label}`);
         try {
@@ -249,7 +259,7 @@ async function syncLabelsForMR(settings, projectPath, mr) {
     }
 
     addProgress(`Adding labels to MR !${mr.mrIid}...`);
-    await addLabelsToMR(settings, projectPath, mr.mrIid, jiraLabels);
+    await addLabelsToMR(settings, projectPath, mr.mrIid, labelsToApply);
     result.status = 'success';
   } catch (e) {
     result.status = 'error';
