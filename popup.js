@@ -303,8 +303,7 @@ optionsLink.addEventListener('click', (e) => {
   chrome.runtime.openOptionsPage();
 });
 
-document.getElementById('create-mr-btn').addEventListener('click', async (e) => {
-  e.preventDefault();
+async function createMRToTarget(targetBranch) {
   const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
   if (!tab || !tab.url) return;
 
@@ -326,11 +325,21 @@ document.getElementById('create-mr-btn').addEventListener('click', async (e) => 
     });
     const project = await res.json();
     const defaultBranch = project.default_branch || 'main';
-    const mrUrl = `https://${host}/${projectPath}/-/merge_requests/new?merge_request[source_branch]=${encodeURIComponent(defaultBranch)}&merge_request[target_branch]=testing`;
+    const mrUrl = `https://${host}/${projectPath}/-/merge_requests/new?merge_request[source_branch]=${encodeURIComponent(defaultBranch)}&merge_request[target_branch]=${encodeURIComponent(targetBranch)}`;
     chrome.tabs.create({ url: mrUrl, active: true });
   } catch (e) {
     setStatus(`Failed to create MR link: ${e.message}`, 'error');
   }
+}
+
+document.getElementById('create-mr-testing-btn').addEventListener('click', (e) => {
+  e.preventDefault();
+  createMRToTarget('testing');
+});
+
+document.getElementById('create-mr-main-btn').addEventListener('click', (e) => {
+  e.preventDefault();
+  createMRToTarget('main');
 });
 
 init();
