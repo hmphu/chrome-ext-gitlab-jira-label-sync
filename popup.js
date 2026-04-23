@@ -341,7 +341,7 @@ document.getElementById('create-mr-testing-btn').addEventListener('click', (e) =
 
 document.getElementById('create-mr-main-btn').addEventListener('click', (e) => {
   e.preventDefault();
-  createMRToTarget('main', branch => `Release ${branch}`);
+  createMRToTarget('main', branch => `Release ${branch.replace(/^releases\//, '')}`);
 });
 
 document.getElementById('fix-mrs-btn').addEventListener('click', async () => {
