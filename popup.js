@@ -394,7 +394,7 @@ document.getElementById('create-mr-main-to-testing-btn').addEventListener('click
     return;
   }
 
-  const mrUrl = `https://${host}/${projectPath}/-/merge_requests/new?merge_request[source_branch]=main&merge_request[target_branch]=testing`;
+  const mrUrl = `https://${host}/${projectPath}/-/merge_requests/new?merge_request[source_branch]=main&merge_request[target_branch]=testing&merge_request[title]=${encodeURIComponent('Sync main into testing')}`;
   chrome.tabs.create({ url: mrUrl, active: true });
 });
 
