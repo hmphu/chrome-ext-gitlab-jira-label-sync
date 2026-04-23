@@ -459,4 +459,60 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     })();
     return true;
   }
+
+  if (request.action === 'fixBrokenMRs') {
+    (async () => {
+      const settings = await getSettings();
+      if (!settings.gitlabToken || !settings.gitlabBaseUrl) {
+        sendResponse({ error: 'Please configure GitLab credentials in Settings.' });
+        return;
+      }
+
+      const { projectPath } = request;
+      const encoded = encodeURIComponent(projectPath);
+
+      try {
+        const project = await gitlabFetch(settings, `projects/${encoded}`);
+        const defaultBranch = project.default_branch;
+
+        const branches = await gitlabFetch(settings, `projects/${encoded}/repository/branches?per_page=100`);
+        const branchNames = new Set(branches.map(b => b.name));
+
+        let page = 1;
+        let allOpenMRs = [];
+        while (true) {
+          const mrs = await gitlabFetch(settings, `projects/${encoded}/merge_requests?state=opened&per_page=100&page=${page}`);
+          if (!mrs.length) break;
+          allOpenMRs = allOpenMRs.concat(mrs);
+          if (mrs.length < 100) break;
+          page++;
+        }
+
+        const broken = allOpenMRs.filter(mr => !branchNames.has(mr.target_branch));
+        if (broken.length === 0) {
+          sendResponse({ fixed: 0, defaultBranch, message: 'No broken MRs found.' });
+          return;
+        }
+
+        let fixed = 0;
+        const errors = [];
+        for (const mr of broken) {
+          try {
+            await gitlabFetch(settings, `projects/${encoded}/merge_requests/${mr.iid}`, {
+              method: 'PUT',
+              body: JSON.stringify({ target_branch: defaultBranch })
+            });
+            fixed++;
+          } catch (e) {
+            errors.push(`!${mr.iid}: ${e.message}`);
+          }
+        }
+
+        sendResponse({ fixed, total: broken.length, defaultBranch, errors });
+      } catch (e) {
+        sendResponse({ error: e.message });
+      }
+    })();
+    return true;
+  }
 });

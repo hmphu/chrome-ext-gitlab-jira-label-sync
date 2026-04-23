@@ -102,6 +102,30 @@ h1 {
   cursor: not-allowed;
 }
 
+.btn-secondary {
+  width: 100%;
+  padding: 8px;
+  background: #fff;
+  color: #6b4fbb;
+  border: 1px solid #6b4fbb;
+  border-radius: 6px;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  margin-top: 6px;
+  transition: background 0.2s;
+}
+
+.btn-secondary:hover {
+  background: #f3e8fd;
+}
+
+.btn-secondary:disabled {
+  color: #bbb;
+  border-color: #bbb;
+  cursor: not-allowed;
+}
+
 .progress {
   margin-top: 12px;
   font-size: 11px;

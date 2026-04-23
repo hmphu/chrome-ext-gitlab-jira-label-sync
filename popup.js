@@ -342,4 +342,41 @@ document.getElementById('create-mr-main-btn').addEventListener('click', (e) => {
   createMRToTarget('main');
 });
 
+document.getElementById('fix-mrs-btn').addEventListener('click', async () => {
+  const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+  if (!tab || !tab.url) return;
+
+  const projectMatch = tab.url.match(/https?:\/\/([^/]+)\/(.+?)\/-\//);
+  const rootMatch = !projectMatch && tab.url.match(/https?:\/\/([^/]+)\/(.+?)(?:\?|#|$)/);
+  const projectPath = projectMatch ? projectMatch[2] : (rootMatch ? rootMatch[2].replace(/\/$/, '') : null);
+
+  if (!projectPath) {
+    setStatus('Navigate to a GitLab project page first.', 'error');
+    return;
+  }
+
+  const btn = document.getElementById('fix-mrs-btn');
+  btn.disabled = true;
+  btn.textContent = 'Fixing...';
+  setStatus('Scanning for broken MRs...', 'info');
+
+  try {
+    const result = await chrome.runtime.sendMessage({ action: 'fixBrokenMRs', projectPath });
+    if (result.error) {
+      setStatus(result.error, 'error');
+    } else if (result.fixed === 0) {
+      setStatus(result.message || 'No broken MRs found.', 'success');
+    } else {
+      let msg = `Fixed ${result.fixed}/${result.total} MR(s) → ${result.defaultBranch}`;
+      if (result.errors && result.errors.length > 0) msg += `. Errors: ${result.errors.join(', ')}`;
+      setStatus(msg, result.errors && result.errors.length ? 'error' : 'success');
+    }
+  } catch (e) {
+    setStatus(`Failed: ${e.message}`, 'error');
+  }
+
+  btn.disabled = false;
+  btn.textContent = 'Fix Broken MR Targets';
+});
+
 init();
