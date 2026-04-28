@@ -221,8 +221,11 @@ async function syncLabelsForMR(settings, projectPath, mr) {
     }
     result.jiraTicket = ticketId;
 
-    addProgress(`Fetching Jira labels for ${ticketId}...`);
-    const jiraLabels = await getJiraLabels(settings, ticketId);
+    // Fetch Jira issue fields: labels and status
+    addProgress(`Fetching Jira labels and status for ${ticketId}...`);
+    const issue = await jiraFetch(settings, `issue/${ticketId}?fields=labels,status`);
+    const jiraLabels = issue.fields.labels || [];
+    const jiraStatus = issue.fields.status && issue.fields.status.name;
 
     if (jiraLabels.length === 0) {
       result.status = 'skipped';
@@ -235,16 +238,42 @@ async function syncLabelsForMR(settings, projectPath, mr) {
 
     const encoded = encodeURIComponent(projectPath);
     const mrData = await gitlabFetch(settings, `projects/${encoded}/merge_requests/${mr.mrIid}`);
-    const labelsToApply = mrData.target_branch === 'testing'
+    let labelsToApply = mrData.target_branch === 'testing'
       ? ['Testing', ...jiraLabels.filter(l => l !== 'Testing')]
-      : jiraLabels;
+      : jiraLabels.slice();
 
-    if (mrData.target_branch === 'testing') {
-      addProgress(`Target is testing — prepending Testing label`);
+    // --- QA RETURN logic ---
+    const QA_LABEL = 'QA RETURN';
+    const QA_COLOR = '#d32f2f'; // Red
+    const mrHasQaReturn = (mrData.labels || []).includes(QA_LABEL);
+
+    if (jiraStatus === QA_LABEL) {
+      // Ensure label exists in project
+      const existingLabels = await getGitlabProjectLabels(settings, projectPath);
+      if (!existingLabels.includes(QA_LABEL)) {
+        addProgress(`Creating GitLab label: ${QA_LABEL} (red)`);
+        try {
+          await gitlabFetch(settings, `projects/${encoded}/labels`, {
+            method: 'POST',
+            body: JSON.stringify({ name: QA_LABEL, color: QA_COLOR })
+          });
+        } catch (e) {
+          if (!e.message.includes('409')) {
+            result.errors.push(`Failed to create label "${QA_LABEL}": ${e.message}`);
+          }
+        }
+      }
+      // Add QA RETURN label if not present
+      if (!labelsToApply.includes(QA_LABEL)) {
+        labelsToApply.push(QA_LABEL);
+      }
+    } else {
+      // If MR has QA RETURN but Jira status is not QA RETURN, remove it
+      labelsToApply = labelsToApply.filter(l => l !== QA_LABEL);
     }
 
+    // Ensure all labels exist in project
     const existingLabels = await getGitlabProjectLabels(settings, projectPath);
-
     for (const label of labelsToApply) {
       if (!existingLabels.includes(label)) {
         addProgress(`Creating GitLab label: ${label}`);
@@ -258,7 +287,7 @@ async function syncLabelsForMR(settings, projectPath, mr) {
       }
     }
 
-    addProgress(`Adding labels to MR !${mr.mrIid}...`);
+    addProgress(`Syncing labels to MR !${mr.mrIid}...`);
     await addLabelsToMR(settings, projectPath, mr.mrIid, labelsToApply);
     result.status = 'success';
   } catch (e) {
