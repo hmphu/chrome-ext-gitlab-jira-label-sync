@@ -32,7 +32,7 @@ function showJiraView() {
   tagView.style.display = 'none';
 }
 
-function showTagView() {
+async function showTagView() {
   gitlabView.style.display = 'none';
   jiraView.style.display = 'none';
   tagView.style.display = '';
@@ -46,6 +46,34 @@ function showTagView() {
     const dd = String(now.getDate()).padStart(2, '0');
     dateInput.value = `${yyyy}.${mm}.${dd}`;
   }
+
+  const branchInput = document.getElementById('tag-source-branch');
+  if (!branchInput.value) {
+    branchInput.placeholder = 'Loading…';
+    try {
+      const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+      if (tab && tab.url) {
+        const projectMatch = tab.url.match(/https?:\/\/([^/]+)\/(.+?)\/-\//);
+        const rootMatch = !projectMatch && tab.url.match(/https?:\/\/([^/]+)\/(.+?)(?:\?|#|$)/);
+        const projectPath = projectMatch ? projectMatch[2] : (rootMatch ? rootMatch[2].replace(/\/$/, '') : null);
+        if (projectPath) {
+          const settings = await chrome.storage.sync.get({ gitlabToken: '', gitlabBaseUrl: '' });
+          if (settings.gitlabToken && settings.gitlabBaseUrl) {
+            const encoded = encodeURIComponent(projectPath);
+            const res = await fetch(`${settings.gitlabBaseUrl.replace(/\/$/, '')}/api/v4/projects/${encoded}`, {
+              headers: { 'PRIVATE-TOKEN': settings.gitlabToken }
+            });
+            if (res.ok) {
+              const project = await res.json();
+              branchInput.value = project.default_branch || '';
+            }
+          }
+        }
+      }
+    } catch (_) {}
+    branchInput.placeholder = 'e.g. main';
+  }
+
   renderTagPreview();
 }
 
