@@ -499,6 +499,32 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     return true;
   }
 
+  if (request.action === 'createTags') {
+    (async () => {
+      const settings = await getSettings();
+      if (!settings.gitlabToken || !settings.gitlabBaseUrl) {
+        sendResponse({ error: 'Please configure GitLab credentials in Settings.' });
+        return;
+      }
+      const { projectPath, tags } = request;
+      const encoded = encodeURIComponent(projectPath);
+      const results = [];
+      for (const { tagName, ref, message } of tags) {
+        try {
+          await gitlabFetch(settings, `projects/${encoded}/repository/tags`, {
+            method: 'POST',
+            body: JSON.stringify({ tag_name: tagName, ref, message: message || '' })
+          });
+          results.push({ tagName, status: 'success' });
+        } catch (e) {
+          results.push({ tagName, status: 'error', message: e.message });
+        }
+      }
+      sendResponse({ results });
+    })();
+    return true;
+  }
+
   if (request.action === 'fixBrokenMRs') {
     (async () => {
       const settings = await getSettings();

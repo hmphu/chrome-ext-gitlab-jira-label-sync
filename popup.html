@@ -23,14 +23,59 @@
       <div id="jira-results" class="results"></div>
     </div>
 
+    <div id="tag-view" style="display:none">
+      <div class="tag-view-header">🏷 Bulk Tag Creator</div>
+
+      <div class="form-group">
+        <label for="tag-source-branch">Source Branch</label>
+        <input type="text" id="tag-source-branch" class="input-field input-full" placeholder="e.g. main">
+      </div>
+
+      <div class="form-group">
+        <label for="tag-services">Services (comma-separated)</label>
+        <textarea id="tag-services" rows="3" placeholder="service-orders, service-catalogs, service-store"></textarea>
+      </div>
+
+      <div class="form-group">
+        <label>Version</label>
+        <div class="tag-version-row">
+          <div class="tag-version-group">
+            <span class="tag-version-label">Date</span>
+            <input type="text" id="tag-date" class="input-field" style="width:110px" placeholder="YYYY.MM.DD">
+          </div>
+          <div class="tag-version-group">
+            <span class="tag-version-label">Patch</span>
+            <input type="number" id="tag-patch" class="input-field" style="width:50px" value="1" min="1">
+          </div>
+          <div class="tag-version-group">
+            <span class="tag-version-label">Env</span>
+            <input type="text" id="tag-env" class="input-field" style="width:70px" value="stag">
+          </div>
+        </div>
+      </div>
+
+      <div class="form-group">
+        <label>Preview</label>
+        <div id="tag-preview"></div>
+      </div>
+
+      <div class="form-group">
+        <label for="tag-message">Tag Message (optional)</label>
+        <textarea id="tag-message" rows="2" placeholder="Optional tag message applied to all tags"></textarea>
+      </div>
+
+      <button id="create-tags-btn" class="btn-primary">Create Tags</button>
+      <div id="tag-results" class="results"></div>
+    </div>
+
     <div class="footer">
-      <a href="#" id="create-mr-testing-btn">New MR → testing</a>
-      &nbsp;·&nbsp;
-      <a href="#" id="create-mr-main-btn">New MR → main</a>
-      &nbsp;·&nbsp;
-      <a href="#" id="create-mr-main-to-testing-btn">main → testing</a>
-      &nbsp;·&nbsp;
-      <a href="#" id="options-link">Settings</a>
+      <div class="footer-grid">
+        <button class="footer-btn" id="create-mr-testing-btn">✚ MR → testing</button>
+        <button class="footer-btn" id="create-mr-main-btn">✚ MR → main</button>
+        <button class="footer-btn" id="create-mr-main-to-testing-btn">⇄ main → testing</button>
+        <button class="footer-btn footer-btn--accent" id="create-tags-btn-footer">🏷 Bulk Tags</button>
+        <button class="footer-btn footer-btn--muted" id="options-link">⚙ Settings</button>
+      </div>
     </div>
   </div>
   <script src="popup.js"></script>

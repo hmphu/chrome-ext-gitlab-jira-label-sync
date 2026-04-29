@@ -180,18 +180,77 @@ h1 {
 }
 
 .footer {
-  margin-top: 12px;
-  text-align: center;
+  margin-top: 14px;
+  padding-top: 10px;
+  border-top: 1px solid #ebebeb;
 }
 
-.footer a {
+.footer-grid {
+  display: grid;
+  grid-template-columns: repeat(6, 1fr);
+  gap: 5px;
+}
+
+/* row 1: three equal buttons across 2 cols each */
+.footer-grid .footer-btn:nth-child(1),
+.footer-grid .footer-btn:nth-child(2),
+.footer-grid .footer-btn:nth-child(3) {
+  grid-column: span 2;
+}
+
+/* row 2: two buttons fill the 6 cols as 3+3 */
+.footer-grid .footer-btn:nth-child(4),
+.footer-grid .footer-btn:nth-child(5) {
+  grid-column: span 3;
+}
+
+.footer-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  padding: 6px 4px;
+  font-size: 11px;
+  font-weight: 500;
+  font-family: inherit;
+  color: #4a4a6a;
+  background: #f5f4fb;
+  border: 1px solid #dddaf5;
+  border-radius: 6px;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background 0.15s, border-color 0.15s, color 0.15s;
+  line-height: 1.2;
+}
+
+.footer-btn:hover {
+  background: #ede9fb;
+  border-color: #b9acee;
+  color: #3a2e8a;
+}
+
+.footer-btn--accent {
   color: #6b4fbb;
-  text-decoration: none;
-  font-size: 12px;
+  background: #f0eaff;
+  border-color: #c9b8f0;
+  font-weight: 600;
 }
 
-.footer a:hover {
-  text-decoration: underline;
+.footer-btn--accent:hover {
+  background: #e4d8ff;
+  border-color: #a990e0;
+}
+
+.footer-btn--muted {
+  color: #777;
+  background: #fafafa;
+  border-color: #e0e0e0;
+}
+
+.footer-btn--muted:hover {
+  background: #f0f0f0;
+  border-color: #bbb;
+  color: #444;
 }
 
 .jira-ticket {
@@ -323,4 +382,110 @@ h1 {
   padding: 4px 8px;
   margin-bottom: 4px;
   font-weight: 500;
+}
+
+/* ── Bulk Tag Creator ────────────────────────────────────── */
+
+textarea {
+  width: 100%;
+  border: 1px solid #d0d0d0;
+  border-radius: 6px;
+  padding: 8px;
+  font-size: 12px;
+  font-family: inherit;
+  color: #333;
+  background: #fff;
+  resize: vertical;
+  transition: border-color 0.15s;
+}
+
+textarea:focus {
+  outline: none;
+  border-color: #6b4fbb;
+}
+
+.form-group {
+  margin-bottom: 10px;
+}
+
+.form-group > label {
+  display: block;
+  font-size: 11px;
+  font-weight: 600;
+  color: #555;
+  margin-bottom: 4px;
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+}
+
+.input-field {
+  border: 1px solid #d0d0d0;
+  border-radius: 6px;
+  padding: 6px 8px;
+  font-size: 12px;
+  font-family: inherit;
+  color: #333;
+  background: #fff;
+  transition: border-color 0.15s;
+}
+
+.input-field:focus {
+  outline: none;
+  border-color: #6b4fbb;
+}
+
+.input-full {
+  width: 100%;
+}
+
+.tag-view-header {
+  font-size: 14px;
+  font-weight: 700;
+  color: #6b4fbb;
+  margin-bottom: 14px;
+  padding-bottom: 8px;
+  border-bottom: 2px solid #f3e8fd;
+}
+
+.tag-version-row {
+  display: flex;
+  align-items: flex-end;
+  gap: 10px;
+}
+
+.tag-version-group {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.tag-version-label {
+  font-size: 10px;
+  font-weight: 600;
+  color: #777;
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+}
+
+#tag-preview {
+  display: flex;
+  flex-wrap: wrap;
+  margin: 4px 0;
+  min-height: 26px;
+  align-items: center;
+}
+
+.tag-chip {
+  background: #f3e8fd;
+  color: #6b4fbb;
+  border: 1px solid #c9a8f5;
+  border-radius: 12px;
+  padding: 2px 10px;
+  font-size: 11px;
+  margin: 2px;
+  font-family: 'SFMono-Regular', Consolas, monospace;
+}
+
+#tag-results {
+  margin-top: 10px;
 }
