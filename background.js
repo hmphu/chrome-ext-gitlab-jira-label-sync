@@ -134,26 +134,15 @@ async function getGitlabProjectLabels(settings, projectPath) {
   return labels.map(l => l.name);
 }
 
-async function createGitlabLabel(settings, projectPath, labelName) {
+async function createGitlabLabel(settings, projectPath, labelName, color) {
   const encoded = encodeURIComponent(projectPath);
-  const color = '#' + Math.floor(Math.random() * 16777215).toString(16).padStart(6, '0');
+  if (!color) color = '#' + Math.floor(Math.random() * 16777215).toString(16).padStart(6, '0');
   return gitlabFetch(settings, `projects/${encoded}/labels`, {
     method: 'POST',
     body: JSON.stringify({ name: labelName, color })
   });
 }
 
-async function addLabelsToMR(settings, projectPath, mrIid, labels) {
-  const encoded = encodeURIComponent(projectPath);
-  const mr = await gitlabFetch(settings, `projects/${encoded}/merge_requests/${mrIid}`);
-  const existingLabels = (mr.labels || []).filter(l => !labels.includes(l));
-  const allLabels = [...labels, ...existingLabels];
-
-  return gitlabFetch(settings, `projects/${encoded}/merge_requests/${mrIid}`, {
-    method: 'PUT',
-    body: JSON.stringify({ labels: allLabels.join(',') })
-  });
-}
 
 function addProgress(msg) {
   syncState.progress.push(msg);
@@ -209,6 +198,8 @@ async function resolveJiraTicket(settings, projectPath, mr) {
   return ticketId;
 }
 
+const STATUS_LABEL_PREFIX = 'Status: ';
+
 async function syncLabelsForMR(settings, projectPath, mr) {
   const result = { mr: mr.title, jiraTicket: mr.jiraTicket, status: 'pending', labels: [], errors: [] };
 
@@ -221,64 +212,38 @@ async function syncLabelsForMR(settings, projectPath, mr) {
     }
     result.jiraTicket = ticketId;
 
-    // Fetch Jira issue fields: labels and status
     addProgress(`Fetching Jira labels and status for ${ticketId}...`);
     const issue = await jiraFetch(settings, `issue/${ticketId}?fields=labels,status`);
     const jiraLabels = issue.fields.labels || [];
     const jiraStatus = issue.fields.status && issue.fields.status.name;
 
-    if (jiraLabels.length === 0) {
-      result.status = 'skipped';
-      result.message = 'No labels on Jira ticket';
-      return result;
-    }
-
-    result.labels = jiraLabels;
-    addProgress(`Found ${jiraLabels.length} labels: ${jiraLabels.join(', ')}`);
-
     const encoded = encodeURIComponent(projectPath);
     const mrData = await gitlabFetch(settings, `projects/${encoded}/merge_requests/${mr.mrIid}`);
+    const existingMrLabels = mrData.labels || [];
+
     let labelsToApply = mrData.target_branch === 'testing'
       ? ['Testing', ...jiraLabels.filter(l => l !== 'Testing')]
       : jiraLabels.slice();
 
-    // --- QA RETURN logic ---
-    const QA_LABEL = 'QA RETURN';
-    const QA_COLOR = '#d32f2f'; // Red
-    const mrHasQaReturn = (mrData.labels || []).includes(QA_LABEL);
+    // --- Jira status as label (remove old status labels, add current) ---
+    const oldStatusLabels = existingMrLabels.filter(l => l.startsWith(STATUS_LABEL_PREFIX));
+    const currentStatusLabel = jiraStatus ? `${STATUS_LABEL_PREFIX}${jiraStatus}` : null;
 
-    if (jiraStatus === QA_LABEL) {
-      // Ensure label exists in project
-      const existingLabels = await getGitlabProjectLabels(settings, projectPath);
-      if (!existingLabels.includes(QA_LABEL)) {
-        addProgress(`Creating GitLab label: ${QA_LABEL} (red)`);
-        try {
-          await gitlabFetch(settings, `projects/${encoded}/labels`, {
-            method: 'POST',
-            body: JSON.stringify({ name: QA_LABEL, color: QA_COLOR })
-          });
-        } catch (e) {
-          if (!e.message.includes('409')) {
-            result.errors.push(`Failed to create label "${QA_LABEL}": ${e.message}`);
-          }
-        }
-      }
-      // Add QA RETURN label if not present
-      if (!labelsToApply.includes(QA_LABEL)) {
-        labelsToApply.push(QA_LABEL);
-      }
-    } else {
-      // If MR has QA RETURN but Jira status is not QA RETURN, remove it
-      labelsToApply = labelsToApply.filter(l => l !== QA_LABEL);
+    if (currentStatusLabel && !labelsToApply.includes(currentStatusLabel)) {
+      labelsToApply.push(currentStatusLabel);
     }
+    addProgress(`Jira status: "${jiraStatus}" → label "${currentStatusLabel}"`);
+
+    result.labels = labelsToApply;
 
     // Ensure all labels exist in project
-    const existingLabels = await getGitlabProjectLabels(settings, projectPath);
+    const existingProjectLabels = await getGitlabProjectLabels(settings, projectPath);
     for (const label of labelsToApply) {
-      if (!existingLabels.includes(label)) {
+      if (!existingProjectLabels.includes(label)) {
         addProgress(`Creating GitLab label: ${label}`);
         try {
-          await createGitlabLabel(settings, projectPath, label);
+          const labelColor = label.startsWith(STATUS_LABEL_PREFIX) ? '#000000' : undefined;
+          await createGitlabLabel(settings, projectPath, label, labelColor);
         } catch (e) {
           if (!e.message.includes('409')) {
             result.errors.push(`Failed to create label "${label}": ${e.message}`);
@@ -287,8 +252,18 @@ async function syncLabelsForMR(settings, projectPath, mr) {
       }
     }
 
+    // Build final label set: existing labels - old status labels + new labels
+    const labelsToRemove = oldStatusLabels.filter(l => l !== currentStatusLabel);
+    const finalLabels = [
+      ...existingMrLabels.filter(l => !labelsToRemove.includes(l) && !labelsToApply.includes(l)),
+      ...labelsToApply
+    ];
+
     addProgress(`Syncing labels to MR !${mr.mrIid}...`);
-    await addLabelsToMR(settings, projectPath, mr.mrIid, labelsToApply);
+    await gitlabFetch(settings, `projects/${encoded}/merge_requests/${mr.mrIid}`, {
+      method: 'PUT',
+      body: JSON.stringify({ labels: finalLabels.join(',') })
+    });
     result.status = 'success';
   } catch (e) {
     result.status = 'error';
@@ -525,6 +500,116 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     return true;
   }
 
+  if (request.action === 'checkSubtasksStatus') {
+    (async () => {
+      const settings = await getSettings();
+      if (!settings.jiraBaseUrl || !settings.jiraEmail || !settings.jiraToken) {
+        sendResponse({ error: 'Please configure Jira credentials in Settings.' });
+        return;
+      }
+      try {
+        const issue = await jiraFetch(settings, `issue/${request.ticketId}?fields=status,subtasks`);
+        const currentStatus = issue.fields.status.name;
+        const subtasks = issue.fields.subtasks || [];
+        const pendingSubtasks = subtasks
+          .filter(st => st.fields.status.name.toUpperCase() !== 'DONE')
+          .map(st => ({ key: st.key, status: st.fields.status.name }));
+        sendResponse({ currentStatus, pendingSubtasks, totalSubtasks: subtasks.length });
+      } catch (e) {
+        sendResponse({ error: e.message });
+      }
+    })();
+    return true;
+  }
+
+  if (request.action === 'transitionSubtasks') {
+    (async () => {
+      const settings = await getSettings();
+      const results = [];
+      for (const key of request.subtaskKeys) {
+        try {
+          const transitions = await jiraFetch(settings, `issue/${key}/transitions`);
+          const target = transitions.transitions.find(t => t.name.toUpperCase() === request.targetStatus.toUpperCase());
+          if (!target) {
+            results.push({ key, error: `No transition to "${request.targetStatus}"` });
+            continue;
+          }
+          const credentials = btoa(`${settings.jiraEmail}:${settings.jiraToken}`);
+          const res = await fetch(`${settings.jiraBaseUrl.replace(/\/$/, '')}/rest/api/3/issue/${key}/transitions`, {
+            method: 'POST',
+            headers: {
+              'Authorization': `Basic ${credentials}`,
+              'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({ transition: { id: target.id } })
+          });
+          if (!res.ok) throw new Error(`${res.status}`);
+          results.push({ key, success: true });
+        } catch (e) {
+          results.push({ key, error: e.message });
+        }
+      }
+      sendResponse({ results });
+    })();
+    return true;
+  }
+
+  if (request.action === 'checkParentStatus') {
+    (async () => {
+      const settings = await getSettings();
+      if (!settings.jiraBaseUrl || !settings.jiraEmail || !settings.jiraToken) {
+        sendResponse({ error: 'Please configure Jira credentials in Settings.' });
+        return;
+      }
+      try {
+        const issue = await jiraFetch(settings, `issue/${request.ticketId}?fields=parent,status`);
+        const parent = issue.fields.parent;
+        if (!parent) {
+          sendResponse({ hasParent: false });
+          return;
+        }
+        const parentIssue = await jiraFetch(settings, `issue/${parent.key}?fields=status`);
+        sendResponse({
+          hasParent: true,
+          parentKey: parent.key,
+          parentStatus: parentIssue.fields.status.name,
+          childStatus: issue.fields.status.name
+        });
+      } catch (e) {
+        sendResponse({ error: e.message });
+      }
+    })();
+    return true;
+  }
+
+  if (request.action === 'transitionChild') {
+    (async () => {
+      const settings = await getSettings();
+      try {
+        const transitions = await jiraFetch(settings, `issue/${request.ticketId}/transitions`);
+        const target = transitions.transitions.find(t => t.name.toUpperCase() === request.targetStatus.toUpperCase());
+        if (!target) {
+          sendResponse({ error: `No transition found to status "${request.targetStatus}"` });
+          return;
+        }
+        const credentials = btoa(`${settings.jiraEmail}:${settings.jiraToken}`);
+        const res = await fetch(`${settings.jiraBaseUrl.replace(/\/$/, '')}/rest/api/3/issue/${request.ticketId}/transitions`, {
+          method: 'POST',
+          headers: {
+            'Authorization': `Basic ${credentials}`,
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({ transition: { id: target.id } })
+        });
+        if (!res.ok) throw new Error(`Transition failed: ${res.status}`);
+        sendResponse({ success: true });
+      } catch (e) {
+        sendResponse({ error: e.message });
+      }
+    })();
+    return true;
+  }
+
   if (request.action === 'fixBrokenMRs') {
     (async () => {
       const settings = await getSettings();
@@ -553,7 +638,7 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
           page++;
         }
 
-        const broken = allOpenMRs.filter(mr => !branchNames.has(mr.target_branch));
+        const broken = allOpenMRs.filter(mr => !branchNames.has(mr.target_branch) && /^releases\//.test(mr.target_branch));
         if (broken.length === 0) {
           sendResponse({ fixed: 0, defaultBranch, message: 'No broken MRs found.' });
           return;
