@@ -54,6 +54,11 @@
           <span class="hint">Regular expression to match Jira ticket IDs in MR titles</span>
         </div>
         <div class="field">
+          <label for="defaultPatchPrefix">Default Patch Prefix</label>
+          <input type="text" id="defaultPatchPrefix" placeholder="p">
+          <span class="hint">Prefix before patch number in bulk tags (default: p)</span>
+        </div>
+        <div class="field">
           <label>
             <input type="checkbox" id="autoLookup" checked>
             Auto-lookup GitLab MRs when viewing a Jira ticket

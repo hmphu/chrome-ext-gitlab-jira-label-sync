@@ -47,7 +47,15 @@ async function showTagView() {
     dateInput.value = `${yyyy}.${mm}.${dd}`;
   }
 
+  const prefixInput = document.getElementById('tag-patch-prefix');
+  if (prefixInput.value === 'p') {
+    const { defaultPatchPrefix } = await chrome.storage.sync.get({ defaultPatchPrefix: 'p' });
+    prefixInput.value = defaultPatchPrefix;
+  }
+
   const branchInput = document.getElementById('tag-source-branch');
+  let projectPath = null;
+
   if (!branchInput.value) {
     branchInput.placeholder = 'Loading…';
     try {
@@ -55,7 +63,7 @@ async function showTagView() {
       if (tab && tab.url) {
         const projectMatch = tab.url.match(/https?:\/\/([^/]+)\/(.+?)\/-\//);
         const rootMatch = !projectMatch && tab.url.match(/https?:\/\/([^/]+)\/(.+?)(?:\?|#|$)/);
-        const projectPath = projectMatch ? projectMatch[2] : (rootMatch ? rootMatch[2].replace(/\/$/, '') : null);
+        projectPath = projectMatch ? projectMatch[2] : (rootMatch ? rootMatch[2].replace(/\/$/, '') : null);
         if (projectPath) {
           const settings = await chrome.storage.sync.get({ gitlabToken: '', gitlabBaseUrl: '' });
           if (settings.gitlabToken && settings.gitlabBaseUrl) {
@@ -74,23 +82,67 @@ async function showTagView() {
     branchInput.placeholder = 'e.g. main';
   }
 
+  await autoFetchPatch(projectPath);
   renderTagPreview();
+}
+
+async function autoFetchPatch(projectPathOverride) {
+  const patchInput = document.getElementById('tag-patch');
+  const date = document.getElementById('tag-date').value.trim();
+  const prefix = document.getElementById('tag-patch-prefix').value.trim() || 'p';
+
+  if (!date) return;
+
+  let projectPath = projectPathOverride;
+  if (!projectPath) {
+    try {
+      const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+      if (tab && tab.url) {
+        const projectMatch = tab.url.match(/https?:\/\/([^/]+)\/(.+?)\/-\//);
+        const rootMatch = !projectMatch && tab.url.match(/https?:\/\/([^/]+)\/(.+?)(?:\?|#|$)/);
+        projectPath = projectMatch ? projectMatch[2] : (rootMatch ? rootMatch[2].replace(/\/$/, '') : null);
+      }
+    } catch (_) {}
+  }
+
+  if (!projectPath) return;
+
+  patchInput.placeholder = '…';
+  try {
+    const result = await chrome.runtime.sendMessage({
+      action: 'fetchLatestPatch',
+      projectPath,
+      date,
+      prefix
+    });
+    patchInput.value = result.patch;
+    renderTagPreview();
+  } catch (_) {
+    patchInput.placeholder = 'auto';
+  }
 }
 
 function buildTagNames() {
   const servicesRaw = document.getElementById('tag-services').value;
   const date = document.getElementById('tag-date').value.trim();
   const patch = document.getElementById('tag-patch').value.trim() || '1';
+  const prefix = document.getElementById('tag-patch-prefix').value.trim() || 'p';
   const env = document.getElementById('tag-env').value.trim();
+
+  const version = `v${date}-${prefix}${patch}${env ? '-' + env : ''}`;
 
   const services = servicesRaw
     .split(',')
     .map(s => s.trim())
     .filter(s => s.length > 0);
 
+  if (services.length === 0) {
+    return [{ service: null, tagName: version }];
+  }
+
   return services.map(service => ({
     service,
-    tagName: `${service}-v${date}-p${patch}-${env}`
+    tagName: `${service}-${version}`
   }));
 }
 
@@ -99,7 +151,7 @@ function renderTagPreview() {
   const tags = buildTagNames();
   previewEl.innerHTML = '';
 
-  if (tags.length === 0) {
+  if (tags.length === 0 || !document.getElementById('tag-date').value.trim()) {
     previewEl.innerHTML = '<span style="font-size:11px;color:#aaa;font-style:italic">Tag names will appear here…</span>';
     return;
   }
@@ -112,7 +164,7 @@ function renderTagPreview() {
   });
 }
 
-['tag-services', 'tag-date', 'tag-patch', 'tag-env'].forEach(id => {
+['tag-services', 'tag-date', 'tag-patch', 'tag-patch-prefix', 'tag-env'].forEach(id => {
   const el = document.getElementById(id);
   if (el) el.addEventListener('input', renderTagPreview);
 });
@@ -142,10 +194,6 @@ document.getElementById('create-tags-btn').addEventListener('click', async () =>
   }
 
   const tags = buildTagNames();
-  if (tags.length === 0) {
-    setStatus('Enter at least one service name.', 'error');
-    return;
-  }
 
   const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
   if (!tab || !tab.url) {

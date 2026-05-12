@@ -474,6 +474,35 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     return true;
   }
 
+  if (request.action === 'fetchLatestPatch') {
+    (async () => {
+      const settings = await getSettings();
+      if (!settings.gitlabToken || !settings.gitlabBaseUrl) {
+        sendResponse({ patch: 1 });
+        return;
+      }
+      const { projectPath, date, prefix } = request;
+      const encoded = encodeURIComponent(projectPath);
+      const searchPattern = `v${date}-${prefix}`;
+      try {
+        const tags = await gitlabFetch(settings, `projects/${encoded}/repository/tags?search=${encodeURIComponent(searchPattern)}&per_page=100`);
+        let maxPatch = 0;
+        const regex = new RegExp(`v${date.replace(/\./g, '\\.')}-${prefix.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(\\d+)`);
+        for (const tag of tags) {
+          const match = tag.name.match(regex);
+          if (match) {
+            const num = parseInt(match[1], 10);
+            if (num > maxPatch) maxPatch = num;
+          }
+        }
+        sendResponse({ patch: maxPatch + 1 });
+      } catch (_) {
+        sendResponse({ patch: 1 });
+      }
+    })();
+    return true;
+  }
+
   if (request.action === 'createTags') {
     (async () => {
       const settings = await getSettings();

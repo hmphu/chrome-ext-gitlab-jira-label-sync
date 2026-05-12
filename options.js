@@ -1,7 +1,7 @@
 const form = document.getElementById('settings-form');
 const saveStatus = document.getElementById('save-status');
 
-const fields = ['gitlabBaseUrl', 'gitlabToken', 'gitlabProjects', 'jiraBaseUrl', 'jiraEmail', 'jiraToken', 'jiraPattern'];
+const fields = ['gitlabBaseUrl', 'gitlabToken', 'gitlabProjects', 'jiraBaseUrl', 'jiraEmail', 'jiraToken', 'jiraPattern', 'defaultPatchPrefix'];
 
 async function loadSettings() {
   const settings = await chrome.storage.sync.get({
@@ -12,7 +12,8 @@ async function loadSettings() {
     jiraEmail: '',
     jiraToken: '',
     jiraPattern: '[A-Z][A-Z0-9]+-\\d+',
-    autoLookup: true
+    autoLookup: true,
+    defaultPatchPrefix: 'p'
   });
 
   fields.forEach(f => {
