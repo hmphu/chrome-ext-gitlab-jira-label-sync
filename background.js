@@ -18,9 +18,27 @@ chrome.runtime.onInstalled.addListener(() => {
     contexts: ['page', 'link'],
     documentUrlPatterns: ['https://*/*/-/tree/*', 'https://*/*/-/branches*', 'https://*/*/-/commits/*']
   });
+  chrome.contextMenus.create({
+    id: 'syncLabels',
+    title: 'Sync Jira Labels',
+    contexts: ['page'],
+    documentUrlPatterns: ['https://*/*/-/merge_requests*']
+  });
 });
 
 chrome.contextMenus.onClicked.addListener((info, tab) => {
+  if (info.menuItemId === 'syncLabels') {
+    chrome.tabs.sendMessage(tab.id, { action: 'extractMRs' }, (response) => {
+      if (!response || !response.mrs || !response.mrs.length || !response.projectPath) return;
+      syncState = { running: false, progress: [], results: [], total: 0, completed: 0, error: null };
+      queue = [];
+      seen = new Set();
+      syncStarted = true;
+      runSync({ mrs: response.mrs, projectPath: response.projectPath });
+    });
+    return;
+  }
+
   if (info.menuItemId !== 'setDefaultBranch') return;
 
   const pageUrl = info.pageUrl || (tab && tab.url) || '';
@@ -104,6 +122,21 @@ async function jiraFetch(settings, path) {
       'Authorization': `Basic ${credentials}`,
       'Accept': 'application/json'
     }
+  });
+  if (!response.ok) throw new Error(`Jira API error: ${response.status} ${response.statusText}`);
+  return response.json();
+}
+
+async function jiraSearch(settings, jql, fields = 'summary,status', maxResults = 100) {
+  const credentials = btoa(`${settings.jiraEmail}:${settings.jiraToken}`);
+  const response = await fetch(`${settings.jiraBaseUrl.replace(/\/$/, '')}/rest/api/3/search/jql`, {
+    method: 'POST',
+    headers: {
+      'Authorization': `Basic ${credentials}`,
+      'Content-Type': 'application/json',
+      'Accept': 'application/json'
+    },
+    body: JSON.stringify({ jql, fields: fields.split(','), maxResults })
   });
   if (!response.ok) throw new Error(`Jira API error: ${response.status} ${response.statusText}`);
   return response.json();
@@ -326,40 +359,60 @@ async function runSync(data) {
 }
 
 let jiraTicketOnPage = null;
+let epicInfoOnPage = null;
 
 async function searchGitlabMRsForTicket(settings, ticketId) {
   const projects = (settings.gitlabProjects || '').split('\n').map(p => p.trim()).filter(Boolean);
   const results = [];
 
-  for (const projectPath of projects) {
-    const encoded = encodeURIComponent(projectPath);
-    try {
-      const mrs = await gitlabFetch(settings, `projects/${encoded}/merge_requests?search=${ticketId}&per_page=100`);
-      for (const mr of mrs) {
-        const rawPattern = (settings.jiraPattern || '[A-Z][A-Z0-9]+-\\d+').replace(/^\^/, '').replace(/\$$/, '');
-        const pattern = new RegExp(rawPattern);
-        const titleMatch = (mr.title || '').match(pattern);
-        const descMatch = (mr.description || '').match(pattern);
-        const branchMatch = (mr.source_branch || '').match(pattern);
-        const foundTicket = (titleMatch && titleMatch[0]) || (descMatch && descMatch[0]) || (branchMatch && branchMatch[0]);
-        if (foundTicket === ticketId) {
-          results.push({
-            title: mr.title,
-            mrIid: mr.iid,
-            projectPath,
-            sourceBranch: mr.source_branch,
-            targetBranch: mr.target_branch,
-            state: mr.state,
-            mergedAt: mr.merged_at,
-            webUrl: mr.web_url
-          });
-        }
-      }
-    } catch (e) {}
-  }
-
   if (projects.length === 0) {
     return { error: 'No GitLab projects configured. Add project paths in Settings.' };
+  }
+
+  for (const projectPath of projects) {
+    const encoded = encodeURIComponent(projectPath);
+    const seen = new Set();
+
+    const addMR = (mr) => {
+      if (seen.has(mr.iid)) return;
+      const rawPattern = (settings.jiraPattern || '[A-Z][A-Z0-9]+-\\d+').replace(/^\^/, '').replace(/\$$/, '');
+      const pattern = new RegExp(rawPattern);
+      const titleMatch = (mr.title || '').match(pattern);
+      const descMatch = (mr.description || '').match(pattern);
+      const branchMatch = (mr.source_branch || '').match(pattern);
+      const foundTicket = (titleMatch && titleMatch[0]) || (descMatch && descMatch[0]) || (branchMatch && branchMatch[0]);
+      if (foundTicket === ticketId) {
+        seen.add(mr.iid);
+        results.push({
+          title: mr.title,
+          mrIid: mr.iid,
+          projectPath,
+          sourceBranch: mr.source_branch,
+          targetBranch: mr.target_branch,
+          state: mr.state,
+          mergedAt: mr.merged_at,
+          webUrl: mr.web_url
+        });
+      }
+    };
+
+    try {
+      // Search by title/description
+      const mrs = await gitlabFetch(settings, `projects/${encoded}/merge_requests?search=${ticketId}&state=all&per_page=100`);
+      mrs.forEach(addMR);
+    } catch (e) {}
+
+    try {
+      // Search by source_branch: find branches containing the ticket ID
+      const branches = await gitlabFetch(settings, `projects/${encoded}/repository/branches?search=${ticketId}&per_page=100`);
+      for (const branch of branches) {
+        if (!branch.name.includes(ticketId)) continue;
+        try {
+          const branchMRs = await gitlabFetch(settings, `projects/${encoded}/merge_requests?source_branch=${encodeURIComponent(branch.name)}&state=all&per_page=100`);
+          branchMRs.forEach(addMR);
+        } catch (e) {}
+      }
+    } catch (e) {}
   }
 
   return { ticketId, mrs: results };
@@ -407,6 +460,12 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     return false;
   }
 
+  if (request.action === 'epicPageDetected') {
+    epicInfoOnPage = { groupPath: request.groupPath, epicIid: request.epicIid };
+    sendResponse({ ok: true });
+    return false;
+  }
+
   if (request.action === 'getPageContext') {
     chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
       if (!tabs[0]) { sendResponse({ type: 'unknown' }); return; }
@@ -417,6 +476,16 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
             sendResponse({ type: 'jira', ticketId: response.ticketId });
           } else if (jiraTicketOnPage) {
             sendResponse({ type: 'jira', ticketId: jiraTicketOnPage });
+          } else {
+            sendResponse({ type: 'unknown' });
+          }
+        });
+      } else if (url.includes('/-/epics/')) {
+        chrome.tabs.sendMessage(tabs[0].id, { action: 'getEpicInfo' }, (response) => {
+          if (response && response.groupPath && response.epicIid) {
+            sendResponse({ type: 'epic', groupPath: response.groupPath, epicIid: response.epicIid });
+          } else if (epicInfoOnPage) {
+            sendResponse({ type: 'epic', ...epicInfoOnPage });
           } else {
             sendResponse({ type: 'unknown' });
           }
@@ -440,18 +509,37 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
         return;
       }
       try {
-        const issue = await jiraFetch(settings, `issue/${request.ticketId}?fields=subtasks`);
-        const subtasks = (issue.fields.subtasks || []).map(st => ({
+        const issue = await jiraFetch(settings, `issue/${request.ticketId}?fields=subtasks,issuetype`);
+        let children = (issue.fields.subtasks || []).map(st => ({
           key: st.key,
           summary: st.fields.summary,
           status: st.fields.status.name
         }));
 
+        if (children.length === 0) {
+          const childrenMap = new Map();
+          const jqlQueries = [
+            `parent = ${request.ticketId}`,
+            `"Epic Link" = ${request.ticketId}`
+          ];
+          for (const jql of jqlQueries) {
+            try {
+              const searchResult = await jiraSearch(settings, jql);
+              for (const i of (searchResult.issues || [])) {
+                if (!childrenMap.has(i.key)) {
+                  childrenMap.set(i.key, { key: i.key, summary: i.fields.summary, status: i.fields.status.name });
+                }
+              }
+            } catch (_) {}
+          }
+          children = [...childrenMap.values()];
+        }
+
         const parentResult = await searchGitlabMRsForTicket(settings, request.ticketId);
         if (parentResult.error) { sendResponse(parentResult); return; }
 
         const subtaskResults = [];
-        for (const st of subtasks) {
+        for (const st of children) {
           const stResult = await searchGitlabMRsForTicket(settings, st.key);
           subtaskResults.push({
             ticketId: st.key,
@@ -469,6 +557,140 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
       } catch (e) {
         const result = await searchGitlabMRsForTicket(settings, request.ticketId);
         sendResponse({ ...result, subtasks: [] });
+      }
+    })();
+    return true;
+  }
+
+  if (request.action === 'lookupEpicMRs') {
+    (async () => {
+      const settings = await getSettings();
+      if (!settings.gitlabToken || !settings.gitlabBaseUrl) {
+        sendResponse({ error: 'Please configure GitLab credentials in Settings.' });
+        return;
+      }
+      const { groupPath, epicIid } = request;
+      try {
+        const query = `query {
+          namespace(fullPath: "${groupPath}") {
+            workItem(iid: "${epicIid}") {
+              widgets {
+                ... on WorkItemWidgetHierarchy {
+                  children {
+                    nodes {
+                      id
+                      iid
+                      title
+                      state
+                      namespace {
+                        fullPath
+                      }
+                      project {
+                        fullPath
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }`;
+
+        const graphqlUrl = `${settings.gitlabBaseUrl.replace(/\/$/, '')}/api/graphql`;
+        const gqlRes = await fetch(graphqlUrl, {
+          method: 'POST',
+          headers: {
+            'PRIVATE-TOKEN': settings.gitlabToken,
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({ query })
+        });
+        if (!gqlRes.ok) throw new Error(`GraphQL error: ${gqlRes.status}`);
+        const gqlData = await gqlRes.json();
+
+        const widgets = gqlData.data?.namespace?.workItem?.widgets || [];
+        const hierarchyWidget = widgets.find(w => w.children);
+        const children = hierarchyWidget?.children?.nodes || [];
+
+        if (children.length === 0) {
+          const encodedGroup = encodeURIComponent(groupPath);
+          let page = 1;
+          let allIssues = [];
+          while (true) {
+            const issues = await gitlabFetch(settings, `groups/${encodedGroup}/epics/${epicIid}/issues?per_page=100&page=${page}`);
+            if (!issues.length) break;
+            allIssues = allIssues.concat(issues);
+            if (issues.length < 100) break;
+            page++;
+          }
+          const issueResults = [];
+          for (const issue of allIssues) {
+            const encodedProject = encodeURIComponent(issue.project_id);
+            let relatedMRs = [];
+            try {
+              relatedMRs = await gitlabFetch(settings, `projects/${encodedProject}/issues/${issue.iid}/related_merge_requests`);
+            } catch (_) {
+              try {
+                relatedMRs = await gitlabFetch(settings, `projects/${encodedProject}/issues/${issue.iid}/closed_by`);
+              } catch (_) {}
+            }
+            const mrs = relatedMRs.map(mr => ({
+              title: mr.title,
+              mrIid: mr.iid,
+              projectPath: mr.references?.full?.split('!')[0] || `project:${issue.project_id}`,
+              sourceBranch: mr.source_branch,
+              targetBranch: mr.target_branch,
+              state: mr.state,
+              mergedAt: mr.merged_at,
+              webUrl: mr.web_url
+            }));
+            issueResults.push({
+              issueIid: issue.iid,
+              issueTitle: issue.title,
+              issueState: issue.state,
+              webUrl: issue.web_url,
+              mrs
+            });
+          }
+          sendResponse({ type: 'epic', groupPath, epicIid, issues: issueResults });
+          return;
+        }
+
+        const issueResults = [];
+        for (const child of children) {
+          const projectPath = child.project?.fullPath;
+          if (!projectPath) continue;
+          const encodedProject = encodeURIComponent(projectPath);
+          let relatedMRs = [];
+          try {
+            relatedMRs = await gitlabFetch(settings, `projects/${encodedProject}/issues/${child.iid}/related_merge_requests`);
+          } catch (_) {
+            try {
+              relatedMRs = await gitlabFetch(settings, `projects/${encodedProject}/issues/${child.iid}/closed_by`);
+            } catch (_) {}
+          }
+          const mrs = relatedMRs.map(mr => ({
+            title: mr.title,
+            mrIid: mr.iid,
+            projectPath: mr.references?.full?.split('!')[0] || projectPath,
+            sourceBranch: mr.source_branch,
+            targetBranch: mr.target_branch,
+            state: mr.state,
+            mergedAt: mr.merged_at,
+            webUrl: mr.web_url
+          }));
+          issueResults.push({
+            issueIid: child.iid,
+            issueTitle: child.title,
+            issueState: child.state.toLowerCase(),
+            webUrl: `${settings.gitlabBaseUrl.replace(/\/$/, '')}/${projectPath}/-/issues/${child.iid}`,
+            mrs
+          });
+        }
+
+        sendResponse({ type: 'epic', groupPath, epicIid, issues: issueResults });
+      } catch (e) {
+        sendResponse({ error: e.message });
       }
     })();
     return true;

@@ -355,9 +355,28 @@ function renderJiraResults(data) {
 
   setStatus(`Found ${totalMRs} MR(s) for ${data.ticketId}${subtaskCount > 0 ? ` + ${subtaskCount} subtask(s)` : ''}`, 'success');
 
+  const allTicketIds = [];
+  if (data.mrs && data.mrs.length > 0) allTicketIds.push(data.ticketId);
+  if (data.subtasks) data.subtasks.forEach(st => allTicketIds.push(st.ticketId));
+
+  if (allTicketIds.length > 1) {
+    const filter = document.createElement('select');
+    filter.className = 'mr-filter-dropdown';
+    filter.innerHTML = `<option value="">All tickets (${allTicketIds.length})</option>` +
+      allTicketIds.map(id => `<option value="${id}">${id}</option>`).join('');
+    filter.addEventListener('change', () => {
+      const val = filter.value;
+      jiraResultsEl.querySelectorAll('.lookup-section').forEach(s => {
+        s.style.display = (!val || s.dataset.ticketId === val) ? '' : 'none';
+      });
+    });
+    jiraResultsEl.appendChild(filter);
+  }
+
   if (data.mrs && data.mrs.length > 0) {
     const section = document.createElement('div');
     section.className = 'lookup-section';
+    section.dataset.ticketId = data.ticketId;
     section.innerHTML = `<div class="lookup-section-header">${data.ticketId}</div>`;
     const alert = getMissingReleaseMRAlert(data.ticketId, data.mrs);
     if (alert) section.appendChild(alert);
@@ -369,6 +388,7 @@ function renderJiraResults(data) {
     data.subtasks.forEach(st => {
       const section = document.createElement('div');
       section.className = 'lookup-section';
+      section.dataset.ticketId = st.ticketId;
       section.innerHTML = `<div class="lookup-section-header">${st.ticketId} <span class="subtask-summary">${st.summary}</span> <span class="subtask-status">${st.status}</span></div>`;
       if (st.mrs.length > 0) {
         const alert = getMissingReleaseMRAlert(st.ticketId, st.mrs);
@@ -469,12 +489,65 @@ async function initJira(ticketId) {
   }
 }
 
+function renderEpicResults(data) {
+  jiraResultsEl.innerHTML = '';
+
+  if (data.error) {
+    setStatus(data.error, 'error');
+    return;
+  }
+
+  const issues = data.issues || [];
+  const totalMRs = issues.reduce((sum, i) => sum + i.mrs.length, 0);
+
+  if (totalMRs === 0) {
+    setStatus(`No merge requests found for this epic (${issues.length} issue(s) checked)`, 'info');
+    return;
+  }
+
+  setStatus(`Found ${totalMRs} MR(s) across ${issues.length} issue(s)`, 'success');
+
+  issues.forEach(issue => {
+    if (issue.mrs.length === 0) return;
+    const section = document.createElement('div');
+    section.className = 'lookup-section';
+    section.innerHTML = `<div class="lookup-section-header">#${issue.issueIid} <span class="subtask-summary">${issue.issueTitle}</span> <span class="subtask-status">${issue.issueState}</span></div>`;
+    renderMRItems(section, issue.mrs);
+    jiraResultsEl.appendChild(section);
+  });
+}
+
+async function initEpic(context) {
+  showJiraView();
+  jiraTicketEl.textContent = `Epic #${context.epicIid}`;
+
+  lookupBtn.disabled = true;
+  lookupBtn.textContent = 'Searching...';
+  setStatus(`Fetching MRs for epic #${context.epicIid}...`, 'info');
+
+  try {
+    const result = await chrome.runtime.sendMessage({
+      action: 'lookupEpicMRs',
+      groupPath: context.groupPath,
+      epicIid: context.epicIid
+    });
+    renderEpicResults(result);
+  } catch (e) {
+    setStatus(`Lookup failed: ${e.message}`, 'error');
+  }
+
+  lookupBtn.disabled = false;
+  lookupBtn.textContent = 'Lookup Merge Requests';
+}
+
 async function init() {
   try {
     const context = await chrome.runtime.sendMessage({ action: 'getPageContext' });
 
     if (context.type === 'jira') {
       await initJira(context.ticketId);
+    } else if (context.type === 'epic') {
+      await initEpic(context);
     } else if (context.type === 'gitlab') {
       await initGitlab(context);
     } else {
@@ -518,8 +591,18 @@ lookupBtn.addEventListener('click', async () => {
   setStatus(`Searching GitLab for ${ticketId}...`, 'info');
 
   try {
-    const result = await chrome.runtime.sendMessage({ action: 'lookupMRs', ticketId });
-    renderJiraResults(result);
+    const context = await chrome.runtime.sendMessage({ action: 'getPageContext' });
+    if (context.type === 'epic') {
+      const result = await chrome.runtime.sendMessage({
+        action: 'lookupEpicMRs',
+        groupPath: context.groupPath,
+        epicIid: context.epicIid
+      });
+      renderEpicResults(result);
+    } else {
+      const result = await chrome.runtime.sendMessage({ action: 'lookupMRs', ticketId });
+      renderJiraResults(result);
+    }
   } catch (e) {
     setStatus(`Lookup failed: ${e.message}`, 'error');
   }
