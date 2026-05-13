@@ -369,26 +369,26 @@ function renderJiraResults(data) {
   if (allTicketIds.length > 1) {
     const filter = document.createElement('select');
     filter.className = 'mr-filter-dropdown';
+    filter.dataset.filterType = 'ticket';
     filter.innerHTML = `<option value="">All tickets (${allTicketIds.length})</option>` +
       allTicketIds.map(id => `<option value="${id}">${id}</option>`).join('');
     filter.addEventListener('change', () => applyFilters());
     filterRow.appendChild(filter);
   }
 
-  if (states.length > 1) {
-    const stateFilter = document.createElement('select');
-    stateFilter.className = 'mr-filter-dropdown';
-    stateFilter.innerHTML = `<option value="">All states</option>` +
-      states.map(s => `<option value="${s}">${s}</option>`).join('');
-    stateFilter.addEventListener('change', () => applyFilters());
-    filterRow.appendChild(stateFilter);
-  }
+  const stateFilter = document.createElement('select');
+  stateFilter.className = 'mr-filter-dropdown';
+  stateFilter.dataset.filterType = 'state';
+  stateFilter.innerHTML = `<option value="">All states</option>` +
+    states.map(s => `<option value="${s}">${s}</option>`).join('');
+  stateFilter.addEventListener('change', () => applyFilters());
+  filterRow.appendChild(stateFilter);
 
-  if (filterRow.children.length > 0) jiraResultsEl.appendChild(filterRow);
+  jiraResultsEl.appendChild(filterRow);
 
   function applyFilters() {
-    const ticketVal = filterRow.querySelector('select')?.value || '';
-    const stateVal = filterRow.querySelectorAll('select')[1]?.value || '';
+    const ticketVal = filterRow.querySelector('[data-filter-type="ticket"]')?.value || '';
+    const stateVal = filterRow.querySelector('[data-filter-type="state"]')?.value || '';
     jiraResultsEl.querySelectorAll('.lookup-section').forEach(s => {
       const ticketMatch = !ticketVal || s.dataset.ticketId === ticketVal;
       s.style.display = ticketMatch ? '' : 'none';
