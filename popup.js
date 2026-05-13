@@ -323,6 +323,7 @@ function renderMRItems(container, mrs) {
     const isOpen = mr.state === 'opened';
     const item = document.createElement('div');
     item.className = 'mr-lookup-item' + (isRelease ? ' release-target' : '') + (isOpen ? ' open-mr' : '');
+    item.dataset.mrState = mr.state;
     item.innerHTML = `
       <div class="mr-title"><a href="#" data-url="${mr.webUrl}">!${mr.mrIid} ${mr.title}</a></div>
       <div class="mr-branches"><code>${mr.sourceBranch}</code> → <code class="target">${mr.targetBranch}</code></div>
@@ -359,18 +360,44 @@ function renderJiraResults(data) {
   if (data.mrs && data.mrs.length > 0) allTicketIds.push(data.ticketId);
   if (data.subtasks) data.subtasks.forEach(st => allTicketIds.push(st.ticketId));
 
+  const allMRs = [...(data.mrs || []), ...(data.subtasks || []).flatMap(st => st.mrs)];
+  const states = [...new Set(allMRs.map(mr => mr.state))];
+
+  const filterRow = document.createElement('div');
+  filterRow.className = 'mr-filter-row';
+
   if (allTicketIds.length > 1) {
     const filter = document.createElement('select');
     filter.className = 'mr-filter-dropdown';
     filter.innerHTML = `<option value="">All tickets (${allTicketIds.length})</option>` +
       allTicketIds.map(id => `<option value="${id}">${id}</option>`).join('');
-    filter.addEventListener('change', () => {
-      const val = filter.value;
-      jiraResultsEl.querySelectorAll('.lookup-section').forEach(s => {
-        s.style.display = (!val || s.dataset.ticketId === val) ? '' : 'none';
-      });
+    filter.addEventListener('change', () => applyFilters());
+    filterRow.appendChild(filter);
+  }
+
+  if (states.length > 1) {
+    const stateFilter = document.createElement('select');
+    stateFilter.className = 'mr-filter-dropdown';
+    stateFilter.innerHTML = `<option value="">All states</option>` +
+      states.map(s => `<option value="${s}">${s}</option>`).join('');
+    stateFilter.addEventListener('change', () => applyFilters());
+    filterRow.appendChild(stateFilter);
+  }
+
+  if (filterRow.children.length > 0) jiraResultsEl.appendChild(filterRow);
+
+  function applyFilters() {
+    const ticketVal = filterRow.querySelector('select')?.value || '';
+    const stateVal = filterRow.querySelectorAll('select')[1]?.value || '';
+    jiraResultsEl.querySelectorAll('.lookup-section').forEach(s => {
+      const ticketMatch = !ticketVal || s.dataset.ticketId === ticketVal;
+      s.style.display = ticketMatch ? '' : 'none';
+      if (ticketMatch) {
+        s.querySelectorAll('.mr-lookup-item').forEach(item => {
+          item.style.display = (!stateVal || item.dataset.mrState === stateVal) ? '' : 'none';
+        });
+      }
     });
-    jiraResultsEl.appendChild(filter);
   }
 
   if (data.mrs && data.mrs.length > 0) {
