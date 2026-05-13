@@ -464,6 +464,7 @@ function startPolling() {
 
 async function initGitlab(context) {
   showGitlabView();
+  document.getElementById('fix-mrs-btn').style.display = '';
 
   const state = await chrome.runtime.sendMessage({ action: 'getSyncState' });
   if (state.running) {
