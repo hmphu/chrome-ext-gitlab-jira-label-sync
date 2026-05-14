@@ -220,10 +220,12 @@ document.getElementById('create-tags-btn').addEventListener('click', async () =>
   btn.textContent = `Creating 0/${payload.length}…`;
 
   try {
+    const forceCreate = document.getElementById('tag-force-create').checked;
     const result = await chrome.runtime.sendMessage({
       action: 'createTags',
       projectPath,
-      tags: payload
+      tags: payload,
+      force: forceCreate
     });
 
     if (result.error) {

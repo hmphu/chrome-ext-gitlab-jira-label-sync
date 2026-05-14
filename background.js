@@ -732,11 +732,16 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
         sendResponse({ error: 'Please configure GitLab credentials in Settings.' });
         return;
       }
-      const { projectPath, tags } = request;
+      const { projectPath, tags, force } = request;
       const encoded = encodeURIComponent(projectPath);
       const results = [];
       for (const { tagName, ref, message } of tags) {
         try {
+          if (force) {
+            try {
+              await gitlabFetch(settings, `projects/${encoded}/repository/tags/${encodeURIComponent(tagName)}`, { method: 'DELETE' });
+            } catch (e) {}
+          }
           await gitlabFetch(settings, `projects/${encoded}/repository/tags`, {
             method: 'POST',
             body: JSON.stringify({ tag_name: tagName, ref, message: message || '' })
