@@ -307,6 +307,19 @@
     }
   }
 
+  function formatMergedTime(mergedAt) {
+    if (!mergedAt) return '';
+    const d = new Date(mergedAt);
+    const now = new Date();
+    const diffMs = now - d;
+    const diffDays = Math.floor(diffMs / 86400000);
+    let label;
+    if (diffDays === 0 && d.toDateString() === now.toDateString()) label = 'Today';
+    else if (diffDays <= 1 && new Date(now - 86400000).toDateString() === d.toDateString()) label = 'Yesterday';
+    else label = d.toLocaleDateString();
+    return ` (${label} ${d.toLocaleTimeString([], {hour: '2-digit', minute: '2-digit'})})`;
+  }
+
   function createMRItem(mr) {
     const item = document.createElement('div');
     item.className = `gl-mr-item ${mr.state}`;
@@ -314,10 +327,11 @@
     const envBadge = /^(main|master)$/.test(mr.targetBranch) ? '<span class="gl-mr-env prod">PROD</span>'
       : /^releases?\//.test(mr.targetBranch) ? '<span class="gl-mr-env uat">UAT</span>'
       : /^(testing|develop|dev)$/.test(mr.targetBranch) ? '<span class="gl-mr-env dev">DEV</span>' : '';
+    const mergedTime = mr.state === 'merged' ? formatMergedTime(mr.mergedAt) : '';
     item.innerHTML = `
       <a href="${mr.webUrl}" target="_blank">!${mr.mrIid} ${mr.title}</a> ${envBadge}
       <div class="gl-mr-branches"><code>${mr.sourceBranch}</code> → <code>${mr.targetBranch}</code></div>
-      <span class="gl-mr-state ${mr.state}">${mr.state}</span>
+      <span class="gl-mr-state ${mr.state}">${mr.state}${mergedTime}</span>
       <div class="gl-mr-project">${mr.projectPath || ''}</div>
     `;
     return item;
