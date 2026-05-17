@@ -158,6 +158,8 @@
       #gl-mr-panel .gl-mr-env.prod{background:#fdecea;color:#c62828}
       #gl-mr-panel .gl-mr-env.uat{background:#fff3e0;color:#e65100}
       #gl-mr-panel .gl-mr-env.dev{background:#e3f2fd;color:#1565c0}
+      #gl-mr-panel .gl-mr-filter-row{display:flex;gap:4px;margin-bottom:8px}
+      #gl-mr-panel .gl-mr-filter{flex:1;padding:4px 6px;border:1px solid #d0c8f0;border-radius:4px;font-size:11px;background:#faf8ff;color:#333}
     `;
     document.head.appendChild(style);
   }
@@ -222,29 +224,82 @@
 
     body.innerHTML = '';
 
+    const allTicketIds = [];
+    if (data.mrs && data.mrs.length > 0) allTicketIds.push(data.ticketId);
+    if (data.subtasks) data.subtasks.forEach(st => { if (st.mrs.length > 0) allTicketIds.push(st.ticketId); });
+    const states = [...new Set(allMRs.map(mr => mr.state))];
+
+    if (allMRs.length > 0 && (allTicketIds.length > 1 || states.length > 1)) {
+      const filterRow = document.createElement('div');
+      filterRow.className = 'gl-mr-filter-row';
+
+      if (allTicketIds.length > 1) {
+        const tf = document.createElement('select');
+        tf.className = 'gl-mr-filter';
+        tf.dataset.filterType = 'ticket';
+        tf.innerHTML = `<option value="">All tickets</option>` + allTicketIds.map(id => `<option value="${id}">${id}</option>`).join('');
+        tf.addEventListener('change', applyFilters);
+        filterRow.appendChild(tf);
+      }
+
+      if (states.length > 1) {
+        const sf = document.createElement('select');
+        sf.className = 'gl-mr-filter';
+        sf.dataset.filterType = 'state';
+        sf.innerHTML = `<option value="">All states</option>` + states.map(s => `<option value="${s}">${s}</option>`).join('');
+        sf.addEventListener('change', applyFilters);
+        filterRow.appendChild(sf);
+      }
+
+      body.appendChild(filterRow);
+    }
+
     if (data.mrs && data.mrs.length > 0) {
-      data.mrs.forEach(mr => body.appendChild(createMRItem(mr)));
+      const section = document.createElement('div');
+      section.className = 'gl-mr-filter-section';
+      section.dataset.ticketId = data.ticketId;
+      data.mrs.forEach(mr => section.appendChild(createMRItem(mr)));
+      body.appendChild(section);
     }
 
     if (data.subtasks) {
       data.subtasks.forEach(st => {
         if (st.mrs.length === 0) return;
+        const section = document.createElement('div');
+        section.className = 'gl-mr-filter-section';
+        section.dataset.ticketId = st.ticketId;
         const header = document.createElement('div');
         header.className = 'gl-mr-section';
         header.textContent = `${st.ticketId} — ${st.summary}`;
-        body.appendChild(header);
-        st.mrs.forEach(mr => body.appendChild(createMRItem(mr)));
+        section.appendChild(header);
+        st.mrs.forEach(mr => section.appendChild(createMRItem(mr)));
+        body.appendChild(section);
       });
     }
 
     if (allMRs.length === 0) {
       body.innerHTML = '<div class="gl-mr-empty">No merge requests found</div>';
     }
+
+    function applyFilters() {
+      const ticketVal = body.querySelector('[data-filter-type="ticket"]')?.value || '';
+      const stateVal = body.querySelector('[data-filter-type="state"]')?.value || '';
+      body.querySelectorAll('.gl-mr-filter-section').forEach(s => {
+        const ticketMatch = !ticketVal || s.dataset.ticketId === ticketVal;
+        s.style.display = ticketMatch ? '' : 'none';
+        if (ticketMatch) {
+          s.querySelectorAll('.gl-mr-item').forEach(item => {
+            item.style.display = (!stateVal || item.dataset.mrState === stateVal) ? '' : 'none';
+          });
+        }
+      });
+    }
   }
 
   function createMRItem(mr) {
     const item = document.createElement('div');
     item.className = `gl-mr-item ${mr.state}`;
+    item.dataset.mrState = mr.state;
     const envBadge = /^(main|master)$/.test(mr.targetBranch) ? '<span class="gl-mr-env prod">PROD</span>'
       : /^releases?\//.test(mr.targetBranch) ? '<span class="gl-mr-env uat">UAT</span>'
       : /^(testing|develop|dev)$/.test(mr.targetBranch) ? '<span class="gl-mr-env dev">DEV</span>' : '';
