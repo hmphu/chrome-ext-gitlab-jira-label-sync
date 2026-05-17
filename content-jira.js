@@ -1,10 +1,16 @@
 (() => {
+  let lastTicketId = null;
+
   function getJiraTicketId() {
     const breadcrumb = document.querySelector('[data-testid="issue.views.issue-base.foundation.breadcrumbs.current-issue.item"]');
     if (breadcrumb) return breadcrumb.textContent.trim();
 
     const match = window.location.pathname.match(/\/browse\/([A-Z][A-Z0-9]+-\d+)/);
     if (match) return match[1];
+
+    const params = new URLSearchParams(window.location.search);
+    const selected = params.get('selectedIssue');
+    if (selected && /^[A-Z][A-Z0-9]+-\d+$/.test(selected)) return selected;
 
     const key = document.querySelector('#key-val, .issue-header-content .key');
     if (key) return key.textContent.trim();
@@ -122,8 +128,192 @@
     });
   }
 
+  function injectStyles() {
+    if (document.getElementById('gl-mr-panel-styles')) return;
+    const style = document.createElement('style');
+    style.id = 'gl-mr-panel-styles';
+    style.textContent = `
+      #gl-mr-panel{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;font-size:12px;background:#fff;border:1px solid #dfe1e6;border-radius:8px;padding:12px;margin-bottom:12px}
+      #gl-mr-panel .gl-mr-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:8px}
+      #gl-mr-panel .gl-mr-title{font-size:13px;font-weight:600;color:#6b4fbb;display:flex;align-items:center;gap:6px}
+      #gl-mr-panel .gl-mr-refresh{background:none;border:none;cursor:pointer;color:#6b4fbb;font-size:14px;padding:2px 4px;border-radius:4px}
+      #gl-mr-panel .gl-mr-refresh:hover{background:#f3e8fd}
+      #gl-mr-panel .gl-mr-status{font-size:11px;color:#666;margin-bottom:8px}
+      #gl-mr-panel .gl-mr-item{padding:6px 8px;border:1px solid #e0e0e0;border-radius:4px;margin-bottom:4px}
+      #gl-mr-panel .gl-mr-item.merged{border-left:3px solid #4caf50}
+      #gl-mr-panel .gl-mr-item.opened{border-left:3px solid #1565c0}
+      #gl-mr-panel .gl-mr-item.closed{border-left:3px solid #f44336}
+      #gl-mr-panel .gl-mr-item a{color:#1565c0;text-decoration:none;font-weight:500;font-size:11px}
+      #gl-mr-panel .gl-mr-item a:hover{text-decoration:underline}
+      #gl-mr-panel .gl-mr-branches{font-size:10px;color:#555;margin-top:2px}
+      #gl-mr-panel .gl-mr-branches code{background:#f0f0f0;padding:1px 4px;border-radius:3px;font-size:10px}
+      #gl-mr-panel .gl-mr-state{display:inline-block;padding:1px 5px;border-radius:3px;font-size:10px;font-weight:500;margin-top:3px}
+      #gl-mr-panel .gl-mr-state.merged{background:#e8f5e9;color:#2e7d32}
+      #gl-mr-panel .gl-mr-state.opened{background:#e3f2fd;color:#1565c0}
+      #gl-mr-panel .gl-mr-state.closed{background:#fdecea;color:#c62828}
+      #gl-mr-panel .gl-mr-section{font-size:11px;font-weight:600;color:#6b4fbb;padding:3px 6px;margin:6px 0 4px;background:#f3e8fd;border-radius:3px}
+      #gl-mr-panel .gl-mr-empty{font-size:11px;color:#999;font-style:italic}
+      #gl-mr-panel .gl-mr-project{font-size:9px;color:#888;margin-top:2px}
+      #gl-mr-panel .gl-mr-env{display:inline-block;padding:1px 5px;border-radius:3px;font-size:9px;font-weight:700;margin-left:4px;vertical-align:middle}
+      #gl-mr-panel .gl-mr-env.prod{background:#fdecea;color:#c62828}
+      #gl-mr-panel .gl-mr-env.uat{background:#fff3e0;color:#e65100}
+      #gl-mr-panel .gl-mr-env.dev{background:#e3f2fd;color:#1565c0}
+    `;
+    document.head.appendChild(style);
+  }
+
+  function getOrCreatePanel() {
+    let panel = document.getElementById('gl-mr-panel');
+    if (panel) return panel;
+
+    injectStyles();
+    panel = document.createElement('div');
+    panel.id = 'gl-mr-panel';
+    panel.innerHTML = `
+      <div class="gl-mr-header">
+        <span class="gl-mr-title">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="18" cy="18" r="3"/><circle cx="6" cy="6" r="3"/><path d="M13 6h3a2 2 0 0 1 2 2v7"/><path d="M6 9v12"/></svg>
+          GitLab MRs
+        </span>
+        <button class="gl-mr-refresh" title="Refresh">↻</button>
+      </div>
+      <div class="gl-mr-status">Loading...</div>
+      <div class="gl-mr-body"></div>
+    `;
+    panel.querySelector('.gl-mr-refresh').addEventListener('click', () => fetchAndRenderMRs(true));
+
+    const target = document.querySelector('#issue\\.views\\.issue-details\\.issue-layout\\.container-right > div > div:nth-child(2) > div:nth-child(3)');
+    if (target) {
+      target.parentElement.insertBefore(panel, target);
+    } else {
+      const sidebar = document.querySelector('[data-testid="issue.views.issue-details.template-detail-view.right-side-panel"]')
+        || document.querySelector('[role="complementary"]')
+        || document.querySelector('aside');
+      if (sidebar) {
+        sidebar.prepend(panel);
+      } else {
+        panel.style.position = 'fixed';
+        panel.style.top = '80px';
+        panel.style.right = '16px';
+        panel.style.width = '280px';
+        panel.style.zIndex = '9999';
+        panel.style.boxShadow = '0 2px 8px rgba(0,0,0,0.15)';
+        document.body.appendChild(panel);
+      }
+    }
+    return panel;
+  }
+
+  function renderMRPanel(data) {
+    const panel = getOrCreatePanel();
+    const status = panel.querySelector('.gl-mr-status');
+    const body = panel.querySelector('.gl-mr-body');
+
+    if (data.error) {
+      status.textContent = data.error;
+      body.innerHTML = '';
+      return;
+    }
+
+    const allMRs = [...(data.mrs || []), ...(data.subtasks || []).flatMap(st => st.mrs)];
+    status.textContent = allMRs.length === 0
+      ? 'No MRs found'
+      : `${allMRs.length} MR(s) found`;
+
+    body.innerHTML = '';
+
+    if (data.mrs && data.mrs.length > 0) {
+      data.mrs.forEach(mr => body.appendChild(createMRItem(mr)));
+    }
+
+    if (data.subtasks) {
+      data.subtasks.forEach(st => {
+        if (st.mrs.length === 0) return;
+        const header = document.createElement('div');
+        header.className = 'gl-mr-section';
+        header.textContent = `${st.ticketId} — ${st.summary}`;
+        body.appendChild(header);
+        st.mrs.forEach(mr => body.appendChild(createMRItem(mr)));
+      });
+    }
+
+    if (allMRs.length === 0) {
+      body.innerHTML = '<div class="gl-mr-empty">No merge requests found</div>';
+    }
+  }
+
+  function createMRItem(mr) {
+    const item = document.createElement('div');
+    item.className = `gl-mr-item ${mr.state}`;
+    const envBadge = /^(main|master)$/.test(mr.targetBranch) ? '<span class="gl-mr-env prod">PROD</span>'
+      : /^releases?\//.test(mr.targetBranch) ? '<span class="gl-mr-env uat">UAT</span>'
+      : /^(testing|develop|dev)$/.test(mr.targetBranch) ? '<span class="gl-mr-env dev">DEV</span>' : '';
+    item.innerHTML = `
+      <a href="${mr.webUrl}" target="_blank">!${mr.mrIid} ${mr.title}</a> ${envBadge}
+      <div class="gl-mr-branches"><code>${mr.sourceBranch}</code> → <code>${mr.targetBranch}</code></div>
+      <span class="gl-mr-state ${mr.state}">${mr.state}</span>
+      <div class="gl-mr-project">${mr.projectPath || ''}</div>
+    `;
+    return item;
+  }
+
+  function fetchAndRenderMRs(force) {
+    const ticketId = getJiraTicketId();
+    if (!ticketId) return;
+    if (!force && ticketId === lastTicketId) return;
+    lastTicketId = ticketId;
+
+    chrome.storage.sync.get({ mrDisplayMode: 'jira' }, (settings) => {
+      if (settings.mrDisplayMode !== 'jira') {
+        const panel = document.getElementById('gl-mr-panel');
+        if (panel) panel.remove();
+        return;
+      }
+
+      const panel = getOrCreatePanel();
+      panel.querySelector('.gl-mr-status').textContent = `Loading MRs for ${ticketId}...`;
+      panel.querySelector('.gl-mr-body').innerHTML = '';
+
+      chrome.runtime.sendMessage({ action: 'lookupMRs', ticketId }, (response) => {
+        if (chrome.runtime.lastError) {
+          renderMRPanel({ error: 'Extension error' });
+          return;
+        }
+        renderMRPanel(response || { error: 'No response' });
+      });
+    });
+  }
+
+  function onTicketChange() {
+    const ticketId = getJiraTicketId();
+    if (ticketId && ticketId !== lastTicketId) {
+      fetchAndRenderMRs(false);
+    } else if (!ticketId) {
+      const panel = document.getElementById('gl-mr-panel');
+      if (panel) panel.remove();
+      lastTicketId = null;
+    }
+  }
+
+  const observer = new MutationObserver(() => {
+    clearTimeout(observer._debounce);
+    observer._debounce = setTimeout(onTicketChange, 500);
+  });
+  observer.observe(document.body, { childList: true, subtree: true });
+
+  let lastUrl = location.href;
+  setInterval(() => {
+    if (location.href !== lastUrl) {
+      lastUrl = location.href;
+      lastTicketId = null;
+      onTicketChange();
+    }
+  }, 1000);
+
   autoSend();
   checkParentSync();
   checkSubtasksSync();
   checkAllChildrenDone();
+
+  setTimeout(() => fetchAndRenderMRs(false), 1500);
 })();

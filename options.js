@@ -13,13 +13,15 @@ async function loadSettings() {
     jiraToken: '',
     jiraPattern: '[A-Z][A-Z0-9]+-\\d+',
     autoLookup: true,
-    defaultPatchPrefix: 'p'
+    defaultPatchPrefix: 'p',
+    mrDisplayMode: 'jira'
   });
 
   fields.forEach(f => {
     document.getElementById(f).value = settings[f];
   });
   document.getElementById('autoLookup').checked = settings.autoLookup;
+  document.getElementById('mrDisplayMode').value = settings.mrDisplayMode;
 }
 
 form.addEventListener('submit', async (e) => {
@@ -27,6 +29,7 @@ form.addEventListener('submit', async (e) => {
   const data = {};
   fields.forEach(f => { data[f] = document.getElementById(f).value.trim(); });
   data.autoLookup = document.getElementById('autoLookup').checked;
+  data.mrDisplayMode = document.getElementById('mrDisplayMode').value;
 
   await chrome.storage.sync.set(data);
   saveStatus.textContent = 'Saved!';

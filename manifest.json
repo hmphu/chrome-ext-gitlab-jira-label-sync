@@ -20,8 +20,13 @@
       "run_at": "document_idle"
     },
     {
-      "matches": ["https://*.atlassian.net/browse/*"],
+      "matches": ["https://*.atlassian.net/*"],
       "js": ["content-jira.js"],
+      "run_at": "document_idle"
+    },
+    {
+      "matches": ["https://*/*/-/epics/*"],
+      "js": ["content-epic.js"],
       "run_at": "document_idle"
     }
   ],

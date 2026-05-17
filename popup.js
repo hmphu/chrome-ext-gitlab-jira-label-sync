@@ -321,13 +321,16 @@ function getMissingReleaseMRAlert(ticketId, mrs) {
 
 function renderMRItems(container, mrs) {
   mrs.forEach(mr => {
-    const isRelease = /^releases\//.test(mr.targetBranch);
+    const isRelease = /^releases?\//.test(mr.targetBranch);
     const isOpen = mr.state === 'opened';
+    const envBadge = /^(main|master)$/.test(mr.targetBranch) ? '<span class="mr-env-badge prod">PROD</span>'
+      : isRelease ? '<span class="mr-env-badge uat">UAT</span>'
+      : /^(testing|develop|dev)$/.test(mr.targetBranch) ? '<span class="mr-env-badge dev">DEV</span>' : '';
     const item = document.createElement('div');
     item.className = 'mr-lookup-item' + (isRelease ? ' release-target' : '') + (isOpen ? ' open-mr' : '');
     item.dataset.mrState = mr.state;
     item.innerHTML = `
-      <div class="mr-title"><a href="#" data-url="${mr.webUrl}">!${mr.mrIid} ${mr.title}</a></div>
+      <div class="mr-title"><a href="#" data-url="${mr.webUrl}">!${mr.mrIid} ${mr.title}</a> ${envBadge}</div>
       <div class="mr-branches"><code>${mr.sourceBranch}</code> → <code class="target">${mr.targetBranch}</code></div>
       <span class="mr-state ${mr.state}">${mr.state}${mr.mergedAt ? (() => { const d = new Date(mr.mergedAt); const today = new Date(); const isToday = d.toDateString() === today.toDateString(); return ' (' + (isToday ? 'Today' : d.toLocaleDateString()) + ' ' + d.toLocaleTimeString([], {hour: '2-digit', minute: '2-digit'}) + ')'; })() : ''}</span>
       <span style="font-size:10px;color:#888;margin-left:4px">${mr.projectPath}</span>
@@ -677,7 +680,7 @@ async function createMRToTarget(targetBranch, titleFn) {
 }
 
 document.getElementById('create-mr-testing-btn').addEventListener('click', () => {
-  createMRToTarget('testing');
+  createMRToTarget('testing', branch => `Sync release ${branch.replace(/^releases\//, '')}`);
 });
 
 document.getElementById('create-mr-main-btn').addEventListener('click', () => {

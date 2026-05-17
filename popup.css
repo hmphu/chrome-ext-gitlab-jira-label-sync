@@ -91,6 +91,10 @@ h1 {
   font-weight: 500;
   cursor: pointer;
   transition: background 0.2s;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
 }
 
 .btn-primary:hover {
@@ -114,6 +118,10 @@ h1 {
   cursor: pointer;
   margin-top: 6px;
   transition: background 0.2s;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
 }
 
 .btn-secondary:hover {
@@ -504,4 +512,29 @@ textarea:focus {
 
 #tag-results {
   margin-top: 10px;
+}
+
+.mr-env-badge {
+  display: inline-block;
+  padding: 1px 5px;
+  border-radius: 3px;
+  font-size: 9px;
+  font-weight: 700;
+  vertical-align: middle;
+  margin-left: 4px;
+}
+
+.mr-env-badge.prod {
+  background: #fdecea;
+  color: #c62828;
+}
+
+.mr-env-badge.uat {
+  background: #fff3e0;
+  color: #e65100;
+}
+
+.mr-env-badge.dev {
+  background: #e3f2fd;
+  color: #1565c0;
 }

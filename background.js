@@ -470,7 +470,7 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
       if (!tabs[0]) { sendResponse({ type: 'unknown' }); return; }
       const url = tabs[0].url || '';
-      if (url.includes('/browse/') && url.includes('atlassian.net')) {
+      if (url.includes('atlassian.net')) {
         chrome.tabs.sendMessage(tabs[0].id, { action: 'getJiraTicket' }, (response) => {
           if (response && response.ticketId) {
             sendResponse({ type: 'jira', ticketId: response.ticketId });
