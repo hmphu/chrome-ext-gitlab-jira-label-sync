@@ -135,6 +135,7 @@
     style.textContent = `
       #gl-mr-panel{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;font-size:12px;background:#fff;border:1px solid #dfe1e6;border-radius:8px;padding:12px;margin-bottom:12px}
       #gl-mr-panel .gl-mr-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:8px}
+      #gl-mr-panel .gl-mr-toggle{font-size:10px;color:#888}
       #gl-mr-panel .gl-mr-title{font-size:13px;font-weight:600;color:#6b4fbb;display:flex;align-items:center;gap:6px}
       #gl-mr-panel .gl-mr-refresh{background:none;border:none;cursor:pointer;color:#6b4fbb;font-size:14px;padding:2px 4px;border-radius:4px}
       #gl-mr-panel .gl-mr-refresh:hover{background:#f3e8fd}
@@ -173,16 +174,26 @@
     panel.id = 'gl-mr-panel';
     panel.innerHTML = `
       <div class="gl-mr-header">
-        <span class="gl-mr-title">
+        <span class="gl-mr-title" style="cursor:pointer">
+          <span class="gl-mr-toggle">▼</span>
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="18" cy="18" r="3"/><circle cx="6" cy="6" r="3"/><path d="M13 6h3a2 2 0 0 1 2 2v7"/><path d="M6 9v12"/></svg>
           GitLab MRs
         </span>
         <button class="gl-mr-refresh" title="Refresh">↻</button>
       </div>
-      <div class="gl-mr-status">Loading...</div>
-      <div class="gl-mr-body"></div>
+      <div class="gl-mr-content">
+        <div class="gl-mr-status">Loading...</div>
+        <div class="gl-mr-body"></div>
+      </div>
     `;
     panel.querySelector('.gl-mr-refresh').addEventListener('click', () => fetchAndRenderMRs(true));
+    panel.querySelector('.gl-mr-title').addEventListener('click', () => {
+      const content = panel.querySelector('.gl-mr-content');
+      const toggle = panel.querySelector('.gl-mr-toggle');
+      const collapsed = content.style.display === 'none';
+      content.style.display = collapsed ? '' : 'none';
+      toggle.textContent = collapsed ? '▼' : '▶';
+    });
 
     const target = document.querySelector('#issue\\.views\\.issue-details\\.issue-layout\\.container-right > div > div:nth-child(2) > div:nth-child(3)');
     if (target) {
