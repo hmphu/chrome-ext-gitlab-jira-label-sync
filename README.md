@@ -1,5 +1,7 @@
 # GitLab Jira Label Sync
 
+> **Sở hữu bởi Hoàng Mạnh Phú**
+
 > **Lưu ý:** Extension này được tạo với mục đích dành cho công việc cá nhân.
 
 Chrome extension tự động đồng bộ labels từ Jira tickets sang GitLab merge requests.
