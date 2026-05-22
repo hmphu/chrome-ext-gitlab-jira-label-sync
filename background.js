@@ -24,9 +24,20 @@ chrome.runtime.onInstalled.addListener(() => {
     contexts: ['page'],
     documentUrlPatterns: ['https://*/*/-/merge_requests*']
   });
+  chrome.contextMenus.create({
+    id: 'showJiraInfo',
+    title: 'Show Jira Tickets Info',
+    contexts: ['page'],
+    documentUrlPatterns: ['https://*/*/-/merge_requests/*']
+  });
 });
 
 chrome.contextMenus.onClicked.addListener((info, tab) => {
+  if (info.menuItemId === 'showJiraInfo') {
+    chrome.tabs.sendMessage(tab.id, { action: 'showJiraPanel' });
+    return;
+  }
+
   if (info.menuItemId === 'syncLabels') {
     chrome.tabs.sendMessage(tab.id, { action: 'extractMRs' }, (response) => {
       if (!response || !response.mrs || !response.mrs.length || !response.projectPath) return;
@@ -859,6 +870,40 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
         });
         if (!res.ok) throw new Error(`Transition failed: ${res.status}`);
         sendResponse({ success: true });
+      } catch (e) {
+        sendResponse({ error: e.message });
+      }
+    })();
+    return true;
+  }
+
+  if (request.action === 'getJiraTicketDetails') {
+    (async () => {
+      const settings = await getSettings();
+      if (!settings.jiraBaseUrl || !settings.jiraEmail || !settings.jiraToken) {
+        sendResponse({ error: 'Please configure Jira credentials in Settings.' });
+        return;
+      }
+      try {
+        const issue = await jiraFetch(settings, `issue/${request.ticketId}?fields=summary,status,assignee,labels,parent`);
+        const result = {
+          key: request.ticketId,
+          title: issue.fields.summary,
+          status: issue.fields.status?.name,
+          assignee: issue.fields.assignee?.displayName || null,
+          labels: issue.fields.labels || [],
+          parent: null
+        };
+        if (issue.fields.parent) {
+          const parent = await jiraFetch(settings, `issue/${issue.fields.parent.key}?fields=summary,status,assignee`);
+          result.parent = {
+            key: parent.key,
+            title: parent.fields.summary,
+            status: parent.fields.status?.name,
+            assignee: parent.fields.assignee?.displayName || null
+          };
+        }
+        sendResponse(result);
       } catch (e) {
         sendResponse({ error: e.message });
       }
