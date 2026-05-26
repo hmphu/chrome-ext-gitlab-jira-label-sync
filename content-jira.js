@@ -38,8 +38,10 @@
 
     chrome.runtime.sendMessage({ action: 'checkParentStatus', ticketId }, (response) => {
       if (!response || !response.hasParent) return;
-      if (response.parentStatus.toUpperCase() !== 'DONE') return;
-      if (response.childStatus.toUpperCase() === response.parentStatus.toUpperCase()) return;
+      const parentStatusUpper = response.parentStatus.toUpperCase();
+      const childStatusUpper = response.childStatus.toUpperCase();
+      if (parentStatusUpper !== 'DONE' && parentStatusUpper !== 'DEPLOYED UAT') return;
+      if (childStatusUpper === parentStatusUpper) return;
 
       const sync = confirm(
         `Parent ticket ${response.parentKey} status is "${response.parentStatus}".\n` +
@@ -60,6 +62,84 @@
           }
         });
       }
+    });
+  }
+
+  function manualSyncWithParent() {
+    const ticketId = getJiraTicketId();
+    if (!ticketId) return;
+
+    const btn = document.querySelector('#gl-sync-parent');
+    const statusMsg = document.querySelector('.gl-sync-status-msg');
+    if (btn) {
+      btn.disabled = true;
+      btn.textContent = 'Checking...';
+    }
+
+    chrome.runtime.sendMessage({ action: 'checkParentStatus', ticketId }, (response) => {
+      if (btn) {
+        btn.disabled = false;
+        btn.textContent = '🔄 Sync with Parent';
+      }
+
+      if (!response || response.error) {
+        if (statusMsg) {
+          statusMsg.textContent = response?.error || 'Failed to check parent status';
+          statusMsg.className = 'gl-sync-status-msg error';
+          statusMsg.style.display = '';
+        }
+        return;
+      }
+
+      if (!response.hasParent) {
+        if (statusMsg) {
+          statusMsg.textContent = 'This ticket has no parent';
+          statusMsg.className = 'gl-sync-status-msg error';
+          statusMsg.style.display = '';
+        }
+        return;
+      }
+
+      const parentStatusUpper = response.parentStatus.toUpperCase();
+      const childStatusUpper = response.childStatus.toUpperCase();
+
+      if (childStatusUpper === parentStatusUpper) {
+        if (statusMsg) {
+          statusMsg.textContent = `Already in sync with parent (${response.parentStatus})`;
+          statusMsg.className = 'gl-sync-status-msg success';
+          statusMsg.style.display = '';
+        }
+        return;
+      }
+
+      if (btn) {
+        btn.disabled = true;
+        btn.textContent = 'Syncing...';
+      }
+      chrome.runtime.sendMessage({
+        action: 'transitionChild',
+        ticketId,
+        targetStatus: response.parentStatus
+      }, (res) => {
+        if (btn) {
+          btn.disabled = false;
+          btn.textContent = '🔄 Sync with Parent';
+        }
+        if (res && res.success) {
+          if (statusMsg) {
+            statusMsg.textContent = 'Synced! Reloading...';
+            statusMsg.className = 'gl-sync-status-msg success';
+            statusMsg.style.display = '';
+          }
+          setTimeout(() => location.reload(), 1000);
+        } else {
+          if (statusMsg) {
+            statusMsg.textContent = `Failed: ${res?.error || 'Unknown error'}`;
+            statusMsg.className = 'gl-sync-status-msg error';
+            statusMsg.style.display = '';
+          }
+        }
+      });
     });
   }
 
@@ -169,6 +249,8 @@
       #gl-mr-panel .gl-qa-header{display:flex;align-items:center;justify-content:space-between;cursor:pointer;margin-bottom:8px}
       #gl-mr-panel .gl-qa-title{font-size:12px;font-weight:600;color:#6b4fbb;display:flex;align-items:center;gap:6px}
       #gl-mr-panel .gl-qa-toggle{font-size:10px;color:#888}
+      #gl-mr-panel .gl-qa-refresh{background:none;border:none;cursor:pointer;color:#6b4fbb;font-size:14px;padding:2px 4px;border-radius:4px}
+      #gl-mr-panel .gl-qa-refresh:hover{background:#f3e8fd}
       #gl-mr-panel .gl-qa-form{display:flex;flex-direction:column;gap:8px}
       #gl-mr-panel .gl-qa-field{display:flex;flex-direction:column;gap:2px}
       #gl-mr-panel .gl-qa-label{font-size:10px;font-weight:500;color:#666}
@@ -180,6 +262,13 @@
       #gl-mr-panel .gl-qa-submit{padding:8px 12px;background:#6b4fbb;color:#fff;border:none;border-radius:4px;font-size:11px;font-weight:500;cursor:pointer}
       #gl-mr-panel .gl-qa-submit:hover{background:#5a3fa8}
       #gl-mr-panel .gl-qa-submit:disabled{background:#ccc;cursor:not-allowed}
+      #gl-mr-panel .gl-sync-section{margin-top:12px;padding-top:12px;border-top:1px solid #e0e0e0}
+      #gl-mr-panel .gl-sync-parent-btn{width:100%;padding:8px 12px;background:#1565c0;color:#fff;border:none;border-radius:4px;font-size:11px;font-weight:500;cursor:pointer}
+      #gl-mr-panel .gl-sync-parent-btn:hover{background:#0d47a1}
+      #gl-mr-panel .gl-sync-parent-btn:disabled{background:#ccc;cursor:not-allowed}
+      #gl-mr-panel .gl-sync-status-msg{font-size:10px;padding:4px 6px;border-radius:3px;margin-top:4px}
+      #gl-mr-panel .gl-sync-status-msg.success{background:#e8f5e9;color:#2e7d32}
+      #gl-mr-panel .gl-sync-status-msg.error{background:#fdecea;color:#c62828}
       #gl-mr-panel .gl-qa-status{font-size:10px;padding:4px 6px;border-radius:3px;margin-top:4px}
       #gl-mr-panel .gl-qa-status.success{background:#e8f5e9;color:#2e7d32}
       #gl-mr-panel .gl-qa-status.error{background:#fdecea;color:#c62828}
@@ -197,24 +286,25 @@
     panel.innerHTML = `
       <div class="gl-mr-header">
         <span class="gl-mr-title" style="cursor:pointer">
-          <span class="gl-mr-toggle">▼</span>
+          <span class="gl-mr-toggle">▶</span>
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="18" cy="18" r="3"/><circle cx="6" cy="6" r="3"/><path d="M13 6h3a2 2 0 0 1 2 2v7"/><path d="M6 9v12"/></svg>
           GitLab MRs
         </span>
         <button class="gl-mr-refresh" title="Refresh">↻</button>
       </div>
-      <div class="gl-mr-content">
+      <div class="gl-mr-content" style="display:none">
         <div class="gl-mr-status">Loading...</div>
         <div class="gl-mr-body"></div>
       </div>
       <div class="gl-qa-section">
         <div class="gl-qa-header">
           <span class="gl-qa-title">
-            <span class="gl-qa-toggle">▼</span>
+            <span class="gl-qa-toggle">▶</span>
             ⚡ Quick Actions
           </span>
+          <button class="gl-qa-refresh" title="Refresh dropdowns">↻</button>
         </div>
-        <div class="gl-qa-content">
+        <div class="gl-qa-content" style="display:none">
           <div class="gl-qa-form">
             <div class="gl-qa-field">
               <label class="gl-qa-label">Change Status</label>
@@ -241,6 +331,10 @@
           </div>
         </div>
       </div>
+      <div class="gl-sync-section">
+        <button class="gl-sync-parent-btn" id="gl-sync-parent">🔄 Sync with Parent</button>
+        <div class="gl-sync-status-msg" style="display:none"></div>
+      </div>
     `;
     panel.querySelector('.gl-mr-refresh').addEventListener('click', () => fetchAndRenderMRs(true));
     panel.querySelector('.gl-mr-title').addEventListener('click', () => {
@@ -250,14 +344,17 @@
       content.style.display = collapsed ? '' : 'none';
       toggle.textContent = collapsed ? '▼' : '▶';
     });
-    panel.querySelector('.gl-qa-header').addEventListener('click', () => {
+    panel.querySelector('.gl-qa-header').addEventListener('click', (e) => {
+      if (e.target.closest('.gl-qa-refresh')) return;
       const content = panel.querySelector('.gl-qa-content');
       const toggle = panel.querySelector('.gl-qa-toggle');
       const collapsed = content.style.display === 'none';
       content.style.display = collapsed ? '' : 'none';
       toggle.textContent = collapsed ? '▼' : '▶';
     });
+    panel.querySelector('.gl-qa-refresh').addEventListener('click', () => loadQuickActionData());
     panel.querySelector('#gl-qa-submit').addEventListener('click', () => submitQuickAction());
+    panel.querySelector('#gl-sync-parent').addEventListener('click', () => manualSyncWithParent());
 
     const target = document.querySelector('#issue\\.views\\.issue-details\\.issue-layout\\.container-right > div > div:nth-child(2) > div:nth-child(3)');
     if (target) {
@@ -455,10 +552,31 @@
 
     const statusSelect = panel.querySelector('#gl-qa-status');
     const assigneeSelect = panel.querySelector('#gl-qa-assignee');
+    const refreshBtn = panel.querySelector('.gl-qa-refresh');
+    const qaContent = panel.querySelector('.gl-qa-content');
     if (!statusSelect || !assigneeSelect) {
       console.log('[GitLab Toolbox] selects not found', { statusSelect, assigneeSelect });
       return;
     }
+
+    // Show loading state
+    statusSelect.disabled = true;
+    assigneeSelect.disabled = true;
+    statusSelect.innerHTML = '<option value="">Loading...</option>';
+    assigneeSelect.innerHTML = '<option value="">Loading...</option>';
+    if (refreshBtn) {
+      refreshBtn.disabled = true;
+      refreshBtn.style.opacity = '0.5';
+    }
+
+    let completed = 0;
+    const checkComplete = () => {
+      completed++;
+      if (completed >= 2 && refreshBtn) {
+        refreshBtn.disabled = false;
+        refreshBtn.style.opacity = '';
+      }
+    };
 
     console.log('[GitLab Toolbox] Fetching transitions and assignees...');
 
@@ -466,18 +584,22 @@
       console.log('[GitLab Toolbox] getJiraTransitions response:', response);
       if (chrome.runtime.lastError) {
         console.error('getJiraTransitions error:', chrome.runtime.lastError);
+        checkComplete();
         return;
       }
       if (response?.error) {
         console.error('getJiraTransitions error:', response.error);
+        checkComplete();
         return;
       }
       const panel = document.getElementById('gl-mr-panel');
       const statusSelect = panel?.querySelector('#gl-qa-status');
       if (!statusSelect) {
         console.error('[GitLab Toolbox] statusSelect not found in callback');
+        checkComplete();
         return;
       }
+      statusSelect.disabled = false;
       statusSelect.innerHTML = '<option value="">— No change —</option>';
       (response.transitions || []).forEach(t => {
         const opt = document.createElement('option');
@@ -486,24 +608,29 @@
         statusSelect.appendChild(opt);
       });
       console.log('[GitLab Toolbox] statusSelect populated with', (response.transitions || []).length, 'options');
+      checkComplete();
     });
 
     chrome.runtime.sendMessage({ action: 'getJiraAssignees', ticketId }, (response) => {
       console.log('[GitLab Toolbox] getJiraAssignees response:', response);
       if (chrome.runtime.lastError) {
         console.error('getJiraAssignees error:', chrome.runtime.lastError);
+        checkComplete();
         return;
       }
       if (response?.error) {
         console.error('getJiraAssignees error:', response.error);
+        checkComplete();
         return;
       }
       const panel = document.getElementById('gl-mr-panel');
       const assigneeSelect = panel?.querySelector('#gl-qa-assignee');
       if (!assigneeSelect) {
         console.error('[GitLab Toolbox] assigneeSelect not found in callback');
+        checkComplete();
         return;
       }
+      assigneeSelect.disabled = false;
       assigneeSelect.innerHTML = '<option value="">— No change —</option>';
 
       const recentIds = new Set((response.recentAssignees || []).map(a => a.accountId));
@@ -534,6 +661,7 @@
         assigneeSelect.appendChild(projectGroup);
       }
       console.log('[GitLab Toolbox] assigneeSelect populated with', (response.users || []).length, 'users');
+      checkComplete();
     });
   }
 

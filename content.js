@@ -129,12 +129,42 @@
     if (tickets.length === 0) {
       content.innerHTML = '<div style="color:#6b778c;font-style:italic">No Jira tickets found in commits</div>';
     } else {
-      content.innerHTML = tickets.map(t => {
-        if (t.error) return `<div style="color:#c62828;margin-bottom:8px">⚠ ${t.key || ''}: ${t.error}</div>`;
+      const ticketIds = tickets.filter(t => !t.error).map(t => t.key);
+      const statuses = [...new Set(tickets.filter(t => !t.error && t.status).map(t => t.status))];
+
+      const filterRow = document.createElement('div');
+      filterRow.style.cssText = 'display:flex;gap:8px;margin-bottom:12px;padding-bottom:12px;border-bottom:1px solid #e0e0e0';
+
+      if (ticketIds.length > 1) {
+        const ticketFilter = document.createElement('select');
+        ticketFilter.id = 'jira-filter-ticket';
+        ticketFilter.style.cssText = 'flex:1;padding:6px 8px;border:1px solid #dfe1e6;border-radius:4px;font-size:12px;background:#fff;color:#172b4d';
+        ticketFilter.innerHTML = `<option value="">All tickets (${ticketIds.length})</option>` + ticketIds.map(id => `<option value="${id}">${id}</option>`).join('');
+        ticketFilter.addEventListener('change', applyJiraFilters);
+        filterRow.appendChild(ticketFilter);
+      }
+
+      if (statuses.length > 1) {
+        const statusFilter = document.createElement('select');
+        statusFilter.id = 'jira-filter-status';
+        statusFilter.style.cssText = 'flex:1;padding:6px 8px;border:1px solid #dfe1e6;border-radius:4px;font-size:12px;background:#fff;color:#172b4d';
+        statusFilter.innerHTML = `<option value="">All statuses</option>` + statuses.map(s => `<option value="${s}">${s}</option>`).join('');
+        statusFilter.addEventListener('change', applyJiraFilters);
+        filterRow.appendChild(statusFilter);
+      }
+
+      if (ticketIds.length > 1 || statuses.length > 1) {
+        content.appendChild(filterRow);
+      }
+
+      const ticketList = document.createElement('div');
+      ticketList.id = 'jira-ticket-list';
+      ticketList.innerHTML = tickets.map(t => {
+        if (t.error) return `<div class="jira-ticket-item" data-ticket="" data-status="" style="color:#c62828;margin-bottom:8px">⚠ ${t.key || ''}: ${t.error}</div>`;
         const ticketUrl = t.jiraBaseUrl ? `${t.jiraBaseUrl.replace(/\/$/, '')}/browse/${t.key}` : '#';
         const labelsHtml = (t.labels || []).map(l => `<span style="display:inline-block;background:#e3f2fd;color:#1565c0;padding:1px 6px;border-radius:3px;font-size:11px;margin-right:4px">${l}</span>`).join('');
         const parentHtml = t.parent ? `<div style="font-size:11px;color:#6b778c;margin-top:4px;padding:4px 6px;background:#f9f9f9;border-radius:4px">↑ <a href="${t.jiraBaseUrl ? t.jiraBaseUrl.replace(/\/$/, '') + '/browse/' + t.parent.key : '#'}" target="_blank" style="color:#0052CC;text-decoration:none;font-weight:500">${t.parent.key}</a> <span style="background:#dfe1e6;color:#42526e;padding:0 4px;border-radius:2px;font-size:10px">${t.parent.status}</span> ${t.parent.title} · 👤 ${t.parent.assignee || 'Unassigned'}</div>` : '';
-        return `<div style="padding:8px 0;border-bottom:1px solid #f0f0f0">
+        return `<div class="jira-ticket-item" data-ticket="${t.key}" data-status="${t.status || ''}" style="padding:8px 0;border-bottom:1px solid #f0f0f0">
           <div style="display:flex;align-items:center;gap:6px;margin-bottom:4px">
             <a href="${ticketUrl}" target="_blank" style="font-weight:600;color:#0052CC;text-decoration:none">${t.key}</a>
             <span style="background:#dfe1e6;color:#42526e;padding:1px 6px;border-radius:3px;font-size:11px;font-weight:500">${t.status || 'Unknown'}</span>
@@ -145,6 +175,17 @@
           ${parentHtml}
         </div>`;
       }).join('');
+      content.appendChild(ticketList);
+
+      function applyJiraFilters() {
+        const ticketVal = document.getElementById('jira-filter-ticket')?.value || '';
+        const statusVal = document.getElementById('jira-filter-status')?.value || '';
+        document.querySelectorAll('.jira-ticket-item').forEach(item => {
+          const ticketMatch = !ticketVal || item.dataset.ticket === ticketVal;
+          const statusMatch = !statusVal || item.dataset.status === statusVal;
+          item.style.display = (ticketMatch && statusMatch) ? '' : 'none';
+        });
+      }
     }
 
     panel.appendChild(content);
