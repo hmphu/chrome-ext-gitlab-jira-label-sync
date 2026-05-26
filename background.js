@@ -520,7 +520,10 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
         return;
       }
       try {
-        const issue = await jiraFetch(settings, `issue/${request.ticketId}?fields=subtasks,issuetype`);
+        const processedTickets = new Set();
+        processedTickets.add(request.ticketId);
+
+        const issue = await jiraFetch(settings, `issue/${request.ticketId}?fields=subtasks,issuetype,issuelinks`);
         let children = (issue.fields.subtasks || []).map(st => ({
           key: st.key,
           summary: st.fields.summary,
@@ -546,6 +549,26 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
           children = [...childrenMap.values()];
         }
 
+        for (const child of children) {
+          processedTickets.add(child.key);
+        }
+
+        const relatedMap = new Map();
+        for (const link of (issue.fields.issuelinks || [])) {
+          const relatedIssue = link.outwardIssue || link.inwardIssue;
+          if (!relatedIssue) continue;
+          if (processedTickets.has(relatedIssue.key)) continue;
+          if (!relatedMap.has(relatedIssue.key)) {
+            relatedMap.set(relatedIssue.key, {
+              key: relatedIssue.key,
+              summary: relatedIssue.fields?.summary || '',
+              status: relatedIssue.fields?.status?.name || '',
+              linkType: link.type?.outward || link.type?.inward || 'related'
+            });
+            processedTickets.add(relatedIssue.key);
+          }
+        }
+
         const parentResult = await searchGitlabMRsForTicket(settings, request.ticketId);
         if (parentResult.error) { sendResponse(parentResult); return; }
 
@@ -560,14 +583,70 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
           });
         }
 
+        const relatedResults = [];
+        for (const rel of relatedMap.values()) {
+          const relResult = await searchGitlabMRsForTicket(settings, rel.key);
+
+          let relSubtasks = [];
+          try {
+            const relIssue = await jiraFetch(settings, `issue/${rel.key}?fields=subtasks`);
+            let relChildren = (relIssue.fields.subtasks || []).map(st => ({
+              key: st.key,
+              summary: st.fields.summary,
+              status: st.fields.status.name
+            }));
+
+            if (relChildren.length === 0) {
+              const relChildrenMap = new Map();
+              const jqlQueries = [
+                `parent = ${rel.key}`,
+                `"Epic Link" = ${rel.key}`
+              ];
+              for (const jql of jqlQueries) {
+                try {
+                  const searchResult = await jiraSearch(settings, jql);
+                  for (const i of (searchResult.issues || [])) {
+                    if (!relChildrenMap.has(i.key)) {
+                      relChildrenMap.set(i.key, { key: i.key, summary: i.fields.summary, status: i.fields.status.name });
+                    }
+                  }
+                } catch (_) {}
+              }
+              relChildren = [...relChildrenMap.values()];
+            }
+
+            for (const relChild of relChildren) {
+              if (processedTickets.has(relChild.key)) continue;
+              processedTickets.add(relChild.key);
+              const relChildResult = await searchGitlabMRsForTicket(settings, relChild.key);
+              relSubtasks.push({
+                ticketId: relChild.key,
+                summary: relChild.summary,
+                status: relChild.status,
+                mrs: relChildResult.mrs || []
+              });
+            }
+          } catch (_) {}
+
+          relatedResults.push({
+            ticketId: rel.key,
+            summary: rel.summary,
+            status: rel.status,
+            linkType: rel.linkType,
+            mrs: relResult.mrs || [],
+            subtasks: relSubtasks
+          });
+        }
+
         sendResponse({
           ticketId: request.ticketId,
           mrs: parentResult.mrs || [],
-          subtasks: subtaskResults
+          subtasks: subtaskResults,
+          related: relatedResults
         });
       } catch (e) {
         const result = await searchGitlabMRsForTicket(settings, request.ticketId);
-        sendResponse({ ...result, subtasks: [] });
+        sendResponse({ ...result, subtasks: [], related: [] });
       }
     })();
     return true;

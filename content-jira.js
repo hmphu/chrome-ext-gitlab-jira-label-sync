@@ -161,6 +161,10 @@
       #gl-mr-panel .gl-mr-env.dev{background:#e3f2fd;color:#1565c0}
       #gl-mr-panel .gl-mr-filter-row{display:flex;gap:4px;margin-bottom:8px}
       #gl-mr-panel .gl-mr-filter{flex:1;padding:4px 6px;border:1px solid #d0c8f0;border-radius:4px;font-size:11px;background:#faf8ff;color:#333}
+      #gl-mr-panel .gl-mr-related-header{font-size:11px;font-weight:600;color:#1565c0;padding:4px 6px;margin:8px 0 4px;background:#e3f2fd;border-radius:3px}
+      #gl-mr-panel .gl-mr-related-section{border-left:3px solid #1565c0;padding-left:4px}
+      #gl-mr-panel .gl-mr-related-subtask{margin-left:8px;border-left:2px solid #90caf9;padding-left:4px}
+      #gl-mr-panel .gl-mr-link-type{font-size:9px;font-weight:400;background:#bbdefb;padding:1px 4px;border-radius:3px;color:#1565c0;margin:0 2px}
     `;
     document.head.appendChild(style);
   }
@@ -228,7 +232,8 @@
       return;
     }
 
-    const allMRs = [...(data.mrs || []), ...(data.subtasks || []).flatMap(st => st.mrs)];
+    const relatedMRs = (data.related || []).flatMap(rel => [...rel.mrs, ...(rel.subtasks || []).flatMap(relSt => relSt.mrs)]);
+    const allMRs = [...(data.mrs || []), ...(data.subtasks || []).flatMap(st => st.mrs), ...relatedMRs];
     status.textContent = allMRs.length === 0
       ? 'No MRs found'
       : `${allMRs.length} MR(s) found`;
@@ -238,6 +243,10 @@
     const allTicketIds = [];
     if (data.mrs && data.mrs.length > 0) allTicketIds.push(data.ticketId);
     if (data.subtasks) data.subtasks.forEach(st => { if (st.mrs.length > 0) allTicketIds.push(st.ticketId); });
+    if (data.related) data.related.forEach(rel => {
+      if (rel.mrs.length > 0) allTicketIds.push(rel.ticketId);
+      if (rel.subtasks) rel.subtasks.forEach(relSt => { if (relSt.mrs.length > 0) allTicketIds.push(relSt.ticketId); });
+    });
     const states = [...new Set(allMRs.map(mr => mr.state))];
 
     if (allMRs.length > 0 && (allTicketIds.length > 1 || states.length > 1)) {
@@ -284,6 +293,42 @@
         header.textContent = `${st.ticketId} — ${st.summary}`;
         section.appendChild(header);
         st.mrs.forEach(mr => section.appendChild(createMRItem(mr)));
+        body.appendChild(section);
+      });
+    }
+
+    if (data.related && data.related.some(rel => rel.mrs.length > 0 || (rel.subtasks || []).some(relSt => relSt.mrs.length > 0))) {
+      const relatedHeader = document.createElement('div');
+      relatedHeader.className = 'gl-mr-related-header';
+      relatedHeader.textContent = 'Related Tickets';
+      body.appendChild(relatedHeader);
+
+      data.related.forEach(rel => {
+        if (rel.mrs.length === 0 && !(rel.subtasks || []).some(relSt => relSt.mrs.length > 0)) return;
+        const section = document.createElement('div');
+        section.className = 'gl-mr-filter-section gl-mr-related-section';
+        section.dataset.ticketId = rel.ticketId;
+        const header = document.createElement('div');
+        header.className = 'gl-mr-section';
+        header.innerHTML = `${rel.ticketId} <span class="gl-mr-link-type">${rel.linkType}</span> — ${rel.summary}`;
+        section.appendChild(header);
+        rel.mrs.forEach(mr => section.appendChild(createMRItem(mr)));
+
+        if (rel.subtasks) {
+          rel.subtasks.forEach(relSt => {
+            if (relSt.mrs.length === 0) return;
+            const subSection = document.createElement('div');
+            subSection.className = 'gl-mr-filter-section gl-mr-related-subtask';
+            subSection.dataset.ticketId = relSt.ticketId;
+            const subHeader = document.createElement('div');
+            subHeader.className = 'gl-mr-section';
+            subHeader.textContent = `${relSt.ticketId} — ${relSt.summary}`;
+            subSection.appendChild(subHeader);
+            relSt.mrs.forEach(mr => subSection.appendChild(createMRItem(mr)));
+            section.appendChild(subSection);
+          });
+        }
+
         body.appendChild(section);
       });
     }

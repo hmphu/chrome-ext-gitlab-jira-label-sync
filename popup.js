@@ -351,21 +351,34 @@ function renderJiraResults(data) {
     return;
   }
 
-  const totalMRs = (data.mrs || []).length + (data.subtasks || []).reduce((sum, st) => sum + st.mrs.length, 0);
+  const relatedMRCount = (data.related || []).reduce((sum, rel) => sum + rel.mrs.length + (rel.subtasks || []).reduce((s, st) => s + st.mrs.length, 0), 0);
+  const totalMRs = (data.mrs || []).length + (data.subtasks || []).reduce((sum, st) => sum + st.mrs.length, 0) + relatedMRCount;
   const subtaskCount = (data.subtasks || []).length;
+  const relatedCount = (data.related || []).length;
 
-  if (totalMRs === 0 && subtaskCount === 0) {
+  if (totalMRs === 0 && subtaskCount === 0 && relatedCount === 0) {
     setStatus(`No merge requests found for ${data.ticketId}`, 'info');
     return;
   }
 
-  setStatus(`Found ${totalMRs} MR(s) for ${data.ticketId}${subtaskCount > 0 ? ` + ${subtaskCount} subtask(s)` : ''}`, 'success');
+  let statusParts = [`Found ${totalMRs} MR(s) for ${data.ticketId}`];
+  if (subtaskCount > 0) statusParts.push(`${subtaskCount} subtask(s)`);
+  if (relatedCount > 0) statusParts.push(`${relatedCount} related`);
+  setStatus(statusParts.join(' + '), 'success');
 
   const allTicketIds = [];
   if (data.mrs && data.mrs.length > 0) allTicketIds.push(data.ticketId);
   if (data.subtasks) data.subtasks.forEach(st => allTicketIds.push(st.ticketId));
+  if (data.related) data.related.forEach(rel => {
+    allTicketIds.push(rel.ticketId);
+    if (rel.subtasks) rel.subtasks.forEach(relSt => allTicketIds.push(relSt.ticketId));
+  });
 
-  const allMRs = [...(data.mrs || []), ...(data.subtasks || []).flatMap(st => st.mrs)];
+  const allMRs = [
+    ...(data.mrs || []),
+    ...(data.subtasks || []).flatMap(st => st.mrs),
+    ...(data.related || []).flatMap(rel => [...rel.mrs, ...(rel.subtasks || []).flatMap(relSt => relSt.mrs)])
+  ];
   const states = [...new Set(allMRs.map(mr => mr.state))];
 
   const filterRow = document.createElement('div');
@@ -432,6 +445,52 @@ function renderJiraResults(data) {
         empty.textContent = 'No merge requests found';
         section.appendChild(empty);
       }
+      jiraResultsEl.appendChild(section);
+    });
+  }
+
+  if (data.related && data.related.length > 0) {
+    const relatedHeader = document.createElement('div');
+    relatedHeader.className = 'related-header';
+    relatedHeader.textContent = 'Related Tickets';
+    jiraResultsEl.appendChild(relatedHeader);
+
+    data.related.forEach(rel => {
+      const section = document.createElement('div');
+      section.className = 'lookup-section related-section';
+      section.dataset.ticketId = rel.ticketId;
+      section.innerHTML = `<div class="lookup-section-header">${rel.ticketId} <span class="link-type">${rel.linkType}</span> <span class="subtask-summary">${rel.summary}</span> <span class="subtask-status">${rel.status}</span></div>`;
+      if (rel.mrs.length > 0) {
+        const alert = getMissingReleaseMRAlert(rel.ticketId, rel.mrs);
+        if (alert) section.appendChild(alert);
+        renderMRItems(section, rel.mrs);
+      } else {
+        const empty = document.createElement('div');
+        empty.className = 'no-mrs';
+        empty.textContent = 'No merge requests found';
+        section.appendChild(empty);
+      }
+
+      if (rel.subtasks && rel.subtasks.length > 0) {
+        rel.subtasks.forEach(relSt => {
+          const subSection = document.createElement('div');
+          subSection.className = 'lookup-section related-subtask-section';
+          subSection.dataset.ticketId = relSt.ticketId;
+          subSection.innerHTML = `<div class="lookup-section-header">${relSt.ticketId} <span class="subtask-summary">${relSt.summary}</span> <span class="subtask-status">${relSt.status}</span></div>`;
+          if (relSt.mrs.length > 0) {
+            const alert = getMissingReleaseMRAlert(relSt.ticketId, relSt.mrs);
+            if (alert) section.appendChild(alert);
+            renderMRItems(subSection, relSt.mrs);
+          } else {
+            const empty = document.createElement('div');
+            empty.className = 'no-mrs';
+            empty.textContent = 'No merge requests found';
+            subSection.appendChild(empty);
+          }
+          section.appendChild(subSection);
+        });
+      }
+
       jiraResultsEl.appendChild(section);
     });
   }
