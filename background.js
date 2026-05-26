@@ -1045,4 +1045,134 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     })();
     return true;
   }
+
+  if (request.action === 'getJiraTransitions') {
+    (async () => {
+      const settings = await getSettings();
+      if (!settings.jiraBaseUrl || !settings.jiraEmail || !settings.jiraToken) {
+        sendResponse({ error: 'Please configure Jira credentials in Settings.' });
+        return;
+      }
+      try {
+        const transitions = await jiraFetch(settings, `issue/${request.ticketId}/transitions`);
+        sendResponse({ transitions: transitions.transitions || [] });
+      } catch (e) {
+        sendResponse({ error: e.message });
+      }
+    })();
+    return true;
+  }
+
+  if (request.action === 'getJiraAssignees') {
+    (async () => {
+      const settings = await getSettings();
+      if (!settings.jiraBaseUrl || !settings.jiraEmail || !settings.jiraToken) {
+        sendResponse({ error: 'Please configure Jira credentials in Settings.' });
+        return;
+      }
+      try {
+        const projectKey = request.ticketId.split('-')[0];
+        const credentials = btoa(`${settings.jiraEmail}:${settings.jiraToken}`);
+        const res = await fetch(`${settings.jiraBaseUrl.replace(/\/$/, '')}/rest/api/3/user/assignable/search?project=${projectKey}&maxResults=100`, {
+          headers: {
+            'Authorization': `Basic ${credentials}`,
+            'Accept': 'application/json'
+          }
+        });
+        if (!res.ok) throw new Error(`Jira API error: ${res.status}`);
+        const users = await res.json();
+        const { recentAssignees = [] } = await chrome.storage.local.get('recentAssignees');
+        sendResponse({ users, recentAssignees });
+      } catch (e) {
+        sendResponse({ error: e.message });
+      }
+    })();
+    return true;
+  }
+
+  if (request.action === 'jiraQuickAction') {
+    (async () => {
+      const settings = await getSettings();
+      if (!settings.jiraBaseUrl || !settings.jiraEmail || !settings.jiraToken) {
+        sendResponse({ error: 'Please configure Jira credentials in Settings.' });
+        return;
+      }
+      const credentials = btoa(`${settings.jiraEmail}:${settings.jiraToken}`);
+      const baseUrl = settings.jiraBaseUrl.replace(/\/$/, '');
+      const results = { status: null, assignee: null, comment: null };
+
+      try {
+        if (request.transitionId) {
+          const res = await fetch(`${baseUrl}/rest/api/3/issue/${request.ticketId}/transitions`, {
+            method: 'POST',
+            headers: {
+              'Authorization': `Basic ${credentials}`,
+              'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({ transition: { id: request.transitionId } })
+          });
+          if (!res.ok) throw new Error(`Status change failed: ${res.status}`);
+          results.status = 'success';
+        }
+
+        if (request.assigneeId) {
+          const res = await fetch(`${baseUrl}/rest/api/3/issue/${request.ticketId}`, {
+            method: 'PUT',
+            headers: {
+              'Authorization': `Basic ${credentials}`,
+              'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({ fields: { assignee: { accountId: request.assigneeId } } })
+          });
+          if (!res.ok) throw new Error(`Assignee change failed: ${res.status}`);
+          results.assignee = 'success';
+
+          const { recentAssignees = [] } = await chrome.storage.local.get('recentAssignees');
+          const updated = [
+            { accountId: request.assigneeId, displayName: request.assigneeName },
+            ...recentAssignees.filter(a => a.accountId !== request.assigneeId)
+          ].slice(0, 10);
+          await chrome.storage.local.set({ recentAssignees: updated });
+        }
+
+        if (request.comment) {
+          let content = [];
+          if (request.tagAssignee && request.assigneeId) {
+            content.push({
+              type: 'mention',
+              attrs: {
+                id: request.assigneeId,
+                text: `@${request.assigneeName || 'user'}`,
+                accessLevel: ''
+              }
+            });
+            content.push({ type: 'text', text: ' ' });
+          }
+          content.push({ type: 'text', text: request.comment });
+          
+          const res = await fetch(`${baseUrl}/rest/api/3/issue/${request.ticketId}/comment`, {
+            method: 'POST',
+            headers: {
+              'Authorization': `Basic ${credentials}`,
+              'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+              body: {
+                type: 'doc',
+                version: 1,
+                content: [{ type: 'paragraph', content }]
+              }
+            })
+          });
+          if (!res.ok) throw new Error(`Comment failed: ${res.status}`);
+          results.comment = 'success';
+        }
+
+        sendResponse({ success: true, results });
+      } catch (e) {
+        sendResponse({ error: e.message, results });
+      }
+    })();
+    return true;
+  }
 });
