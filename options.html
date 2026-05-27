@@ -59,6 +59,23 @@
           <span class="hint">Prefix before patch number in bulk tags (default: p)</span>
         </div>
         <div class="field">
+          <label for="teamsWebhookUrl">Teams Webhook URL</label>
+          <input type="url" id="teamsWebhookUrl" placeholder="https://...powerautomate...">
+          <span class="hint">Power Automate webhook URL for sending ticket info to Teams</span>
+        </div>
+        <div class="field">
+          <label>
+            <input type="checkbox" id="showCopyForTeams" checked>
+            Show "Copy for Teams" button
+          </label>
+        </div>
+        <div class="field">
+          <label>
+            <input type="checkbox" id="showSendToTeams" checked>
+            Show "Send to Teams" button
+          </label>
+        </div>
+        <div class="field">
           <label>
             <input type="checkbox" id="autoLookup" checked>
             Auto-lookup GitLab MRs when viewing a Jira ticket

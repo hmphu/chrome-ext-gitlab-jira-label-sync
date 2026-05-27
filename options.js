@@ -1,7 +1,7 @@
 const form = document.getElementById('settings-form');
 const saveStatus = document.getElementById('save-status');
 
-const fields = ['gitlabBaseUrl', 'gitlabToken', 'gitlabProjects', 'jiraBaseUrl', 'jiraEmail', 'jiraToken', 'jiraPattern', 'defaultPatchPrefix'];
+const fields = ['gitlabBaseUrl', 'gitlabToken', 'gitlabProjects', 'jiraBaseUrl', 'jiraEmail', 'jiraToken', 'jiraPattern', 'defaultPatchPrefix', 'teamsWebhookUrl'];
 
 async function loadSettings() {
   const settings = await chrome.storage.sync.get({
@@ -14,7 +14,10 @@ async function loadSettings() {
     jiraPattern: '[A-Z][A-Z0-9]+-\\d+',
     autoLookup: true,
     defaultPatchPrefix: 'p',
-    mrDisplayMode: 'jira'
+    mrDisplayMode: 'jira',
+    teamsWebhookUrl: '',
+    showCopyForTeams: true,
+    showSendToTeams: true
   });
 
   fields.forEach(f => {
@@ -22,6 +25,8 @@ async function loadSettings() {
   });
   document.getElementById('autoLookup').checked = settings.autoLookup;
   document.getElementById('mrDisplayMode').value = settings.mrDisplayMode;
+  document.getElementById('showCopyForTeams').checked = settings.showCopyForTeams;
+  document.getElementById('showSendToTeams').checked = settings.showSendToTeams;
 }
 
 form.addEventListener('submit', async (e) => {
@@ -30,6 +35,8 @@ form.addEventListener('submit', async (e) => {
   fields.forEach(f => { data[f] = document.getElementById(f).value.trim(); });
   data.autoLookup = document.getElementById('autoLookup').checked;
   data.mrDisplayMode = document.getElementById('mrDisplayMode').value;
+  data.showCopyForTeams = document.getElementById('showCopyForTeams').checked;
+  data.showSendToTeams = document.getElementById('showSendToTeams').checked;
 
   await chrome.storage.sync.set(data);
   saveStatus.textContent = 'Saved!';
