@@ -36,6 +36,12 @@ chrome.runtime.onInstalled.addListener(() => {
     contexts: ['page'],
     documentUrlPatterns: ['https://*.atlassian.net/browse/*']
   });
+  chrome.contextMenus.create({
+    id: 'sendToTeams',
+    title: 'Send to Teams',
+    contexts: ['page'],
+    documentUrlPatterns: ['https://*.atlassian.net/browse/*']
+  });
 });
 
 chrome.contextMenus.onClicked.addListener((info, tab) => {
@@ -46,6 +52,11 @@ chrome.contextMenus.onClicked.addListener((info, tab) => {
 
   if (info.menuItemId === 'copyForTeams') {
     chrome.tabs.sendMessage(tab.id, { action: 'copyForTeams' });
+    return;
+  }
+
+  if (info.menuItemId === 'sendToTeams') {
+    chrome.tabs.sendMessage(tab.id, { action: 'sendToTeams' });
     return;
   }
 

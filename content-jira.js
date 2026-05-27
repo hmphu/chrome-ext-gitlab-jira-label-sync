@@ -33,6 +33,10 @@
       copyForTeams();
       sendResponse({ ok: true });
     }
+    if (request.action === 'sendToTeams') {
+      sendToTeams();
+      sendResponse({ ok: true });
+    }
     return true;
   });
 
@@ -202,6 +206,105 @@
     });
   }
 
+  function sendToTeams() {
+    const ticketId = getJiraTicketId();
+    if (!ticketId) return;
+
+    const btn = document.querySelector('#gl-send-teams');
+    const statusMsg = document.querySelector('.gl-sync-status-msg');
+    if (btn) {
+      btn.disabled = true;
+      btn.textContent = 'Loading...';
+    }
+
+    chrome.runtime.sendMessage({ action: 'getJiraTicketDetails', ticketId }, (response) => {
+      if (!response || response.error) {
+        if (btn) {
+          btn.disabled = false;
+          btn.textContent = '📤 Send to Teams';
+        }
+        if (statusMsg) {
+          statusMsg.textContent = response?.error || 'Failed to get ticket details';
+          statusMsg.className = 'gl-sync-status-msg error';
+          statusMsg.style.display = '';
+        }
+        return;
+      }
+
+      const status = (response.status || '').toUpperCase();
+      const env = status === 'DEPLOYED UAT' ? 'UAT' : 'SIT';
+      const ticketUrl = window.location.href.split('?')[0];
+      const title = (response.title || '').replace(/^\[SIT\]\s*/i, '');
+
+      const text = `🎫 ${ticketId}: ${title}
+🔗 ${ticketUrl}
+🌐 Environment: ${env}
+👤 Current Assignee: ${response.assignee || 'Unassigned'}`;
+
+      if (btn) btn.textContent = 'Sending...';
+
+      const webhookUrl = 'https://default2e2348dcb4e84230a3bad87a9805fd.92.environment.api.powerplatform.com:443/powerautomate/automations/direct/workflows/23afbc4e386c48c5af638e301ac56ea8/triggers/manual/paths/invoke?api-version=1&sp=%2Ftriggers%2Fmanual%2Frun&sv=1.0&sig=ZeEYvtVwkRcW1k_UIrSABt0oga8B7W5flZmCNTTA0fg';
+
+      const payload = {
+        type: 'message',
+        attachments: [
+          {
+            contentType: 'application/vnd.microsoft.card.adaptive',
+            content: {
+              '$schema': 'http://adaptivecards.io/schemas/adaptive-card.json',
+              type: 'AdaptiveCard',
+              version: '1.2',
+              body: [
+                {
+                  type: 'TextBlock',
+                  text: text,
+                  wrap: true
+                }
+              ]
+            }
+          }
+        ]
+      };
+
+      fetch(webhookUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      }).then(res => {
+        if (btn) {
+          btn.disabled = false;
+          btn.textContent = '📤 Send to Teams';
+        }
+        if (res.ok) {
+          if (statusMsg) {
+            statusMsg.textContent = 'Sent to Teams!';
+            statusMsg.className = 'gl-sync-status-msg success';
+            statusMsg.style.display = '';
+          }
+          setTimeout(() => {
+            if (statusMsg) statusMsg.style.display = 'none';
+          }, 2000);
+        } else {
+          if (statusMsg) {
+            statusMsg.textContent = `Failed to send: ${res.status}`;
+            statusMsg.className = 'gl-sync-status-msg error';
+            statusMsg.style.display = '';
+          }
+        }
+      }).catch(err => {
+        if (btn) {
+          btn.disabled = false;
+          btn.textContent = '📤 Send to Teams';
+        }
+        if (statusMsg) {
+          statusMsg.textContent = 'Failed to send';
+          statusMsg.className = 'gl-sync-status-msg error';
+          statusMsg.style.display = '';
+        }
+      });
+    });
+  }
+
   function checkSubtasksSync() {
     const ticketId = getJiraTicketId();
     if (!ticketId) return;
@@ -328,6 +431,9 @@
       #gl-mr-panel .gl-copy-teams-btn{width:100%;padding:8px 12px;background:#5b5fc7;color:#fff;border:none;border-radius:4px;font-size:11px;font-weight:500;cursor:pointer}
       #gl-mr-panel .gl-copy-teams-btn:hover{background:#4b4fb7}
       #gl-mr-panel .gl-copy-teams-btn:disabled{background:#ccc;cursor:not-allowed}
+      #gl-mr-panel .gl-send-teams-btn{width:100%;padding:8px 12px;background:#464EB8;color:#fff;border:none;border-radius:4px;font-size:11px;font-weight:500;cursor:pointer}
+      #gl-mr-panel .gl-send-teams-btn:hover{background:#3644A5}
+      #gl-mr-panel .gl-send-teams-btn:disabled{background:#ccc;cursor:not-allowed}
       #gl-mr-panel .gl-sync-status-msg{font-size:10px;padding:4px 6px;border-radius:3px;margin-top:4px}
       #gl-mr-panel .gl-sync-status-msg.success{background:#e8f5e9;color:#2e7d32}
       #gl-mr-panel .gl-sync-status-msg.error{background:#fdecea;color:#c62828}
@@ -396,6 +502,7 @@
       <div class="gl-sync-section">
         <button class="gl-sync-parent-btn" id="gl-sync-parent">🔄 Sync with Parent</button>
         <button class="gl-copy-teams-btn" id="gl-copy-teams">📋 Copy for Teams</button>
+        <button class="gl-send-teams-btn" id="gl-send-teams">📤 Send to Teams</button>
         <div class="gl-sync-status-msg" style="display:none"></div>
       </div>
     `;
@@ -419,6 +526,7 @@
     panel.querySelector('#gl-qa-submit').addEventListener('click', () => submitQuickAction());
     panel.querySelector('#gl-sync-parent').addEventListener('click', () => manualSyncWithParent());
     panel.querySelector('#gl-copy-teams').addEventListener('click', () => copyForTeams());
+    panel.querySelector('#gl-send-teams').addEventListener('click', () => sendToTeams());
 
     const target = document.querySelector('#issue\\.views\\.issue-details\\.issue-layout\\.container-right > div > div:nth-child(2) > div:nth-child(3)');
     if (target) {
