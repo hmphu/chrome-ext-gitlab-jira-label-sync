@@ -30,11 +30,22 @@ chrome.runtime.onInstalled.addListener(() => {
     contexts: ['page'],
     documentUrlPatterns: ['https://*/*/-/merge_requests/*']
   });
+  chrome.contextMenus.create({
+    id: 'copyForTeams',
+    title: 'Copy for Teams',
+    contexts: ['page'],
+    documentUrlPatterns: ['https://*.atlassian.net/browse/*']
+  });
 });
 
 chrome.contextMenus.onClicked.addListener((info, tab) => {
   if (info.menuItemId === 'showJiraInfo') {
     chrome.tabs.sendMessage(tab.id, { action: 'showJiraPanel' });
+    return;
+  }
+
+  if (info.menuItemId === 'copyForTeams') {
+    chrome.tabs.sendMessage(tab.id, { action: 'copyForTeams' });
     return;
   }
 

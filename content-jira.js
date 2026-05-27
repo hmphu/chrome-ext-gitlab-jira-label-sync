@@ -29,6 +29,10 @@
     if (request.action === 'getJiraTicket') {
       sendResponse({ ticketId: getJiraTicketId() });
     }
+    if (request.action === 'copyForTeams') {
+      copyForTeams();
+      sendResponse({ ok: true });
+    }
     return true;
   });
 
@@ -138,6 +142,61 @@
             statusMsg.className = 'gl-sync-status-msg error';
             statusMsg.style.display = '';
           }
+        }
+      });
+    });
+  }
+
+  function copyForTeams() {
+    const ticketId = getJiraTicketId();
+    if (!ticketId) return;
+
+    const btn = document.querySelector('#gl-copy-teams');
+    const statusMsg = document.querySelector('.gl-sync-status-msg');
+    if (btn) {
+      btn.disabled = true;
+      btn.textContent = 'Loading...';
+    }
+
+    chrome.runtime.sendMessage({ action: 'getJiraTicketDetails', ticketId }, (response) => {
+      if (btn) {
+        btn.disabled = false;
+        btn.textContent = '📋 Copy for Teams';
+      }
+
+      if (!response || response.error) {
+        if (statusMsg) {
+          statusMsg.textContent = response?.error || 'Failed to get ticket details';
+          statusMsg.className = 'gl-sync-status-msg error';
+          statusMsg.style.display = '';
+        }
+        return;
+      }
+
+      const status = (response.status || '').toUpperCase();
+      const env = status === 'DEPLOYED UAT' ? 'UAT' : 'SIT';
+      const ticketUrl = window.location.href.split('?')[0];
+      const title = (response.title || '').replace(/^\[SIT\]\s*/i, '');
+
+      const text = `🎫 ${ticketId}: ${title}
+🔗 ${ticketUrl}
+🌐 Environment: ${env}
+👤 Current Assignee: ${response.assignee || 'Unassigned'}`;
+
+      navigator.clipboard.writeText(text).then(() => {
+        if (statusMsg) {
+          statusMsg.textContent = 'Copied to clipboard!';
+          statusMsg.className = 'gl-sync-status-msg success';
+          statusMsg.style.display = '';
+        }
+        setTimeout(() => {
+          if (statusMsg) statusMsg.style.display = 'none';
+        }, 2000);
+      }).catch(() => {
+        if (statusMsg) {
+          statusMsg.textContent = 'Failed to copy';
+          statusMsg.className = 'gl-sync-status-msg error';
+          statusMsg.style.display = '';
         }
       });
     });
@@ -262,10 +321,13 @@
       #gl-mr-panel .gl-qa-submit{padding:8px 12px;background:#6b4fbb;color:#fff;border:none;border-radius:4px;font-size:11px;font-weight:500;cursor:pointer}
       #gl-mr-panel .gl-qa-submit:hover{background:#5a3fa8}
       #gl-mr-panel .gl-qa-submit:disabled{background:#ccc;cursor:not-allowed}
-      #gl-mr-panel .gl-sync-section{margin-top:12px;padding-top:12px;border-top:1px solid #e0e0e0}
+      #gl-mr-panel .gl-sync-section{margin-top:12px;padding-top:12px;border-top:1px solid #e0e0e0;display:flex;flex-direction:column;gap:6px}
       #gl-mr-panel .gl-sync-parent-btn{width:100%;padding:8px 12px;background:#1565c0;color:#fff;border:none;border-radius:4px;font-size:11px;font-weight:500;cursor:pointer}
       #gl-mr-panel .gl-sync-parent-btn:hover{background:#0d47a1}
       #gl-mr-panel .gl-sync-parent-btn:disabled{background:#ccc;cursor:not-allowed}
+      #gl-mr-panel .gl-copy-teams-btn{width:100%;padding:8px 12px;background:#5b5fc7;color:#fff;border:none;border-radius:4px;font-size:11px;font-weight:500;cursor:pointer}
+      #gl-mr-panel .gl-copy-teams-btn:hover{background:#4b4fb7}
+      #gl-mr-panel .gl-copy-teams-btn:disabled{background:#ccc;cursor:not-allowed}
       #gl-mr-panel .gl-sync-status-msg{font-size:10px;padding:4px 6px;border-radius:3px;margin-top:4px}
       #gl-mr-panel .gl-sync-status-msg.success{background:#e8f5e9;color:#2e7d32}
       #gl-mr-panel .gl-sync-status-msg.error{background:#fdecea;color:#c62828}
@@ -333,6 +395,7 @@
       </div>
       <div class="gl-sync-section">
         <button class="gl-sync-parent-btn" id="gl-sync-parent">🔄 Sync with Parent</button>
+        <button class="gl-copy-teams-btn" id="gl-copy-teams">📋 Copy for Teams</button>
         <div class="gl-sync-status-msg" style="display:none"></div>
       </div>
     `;
@@ -355,6 +418,7 @@
     panel.querySelector('.gl-qa-refresh').addEventListener('click', () => loadQuickActionData());
     panel.querySelector('#gl-qa-submit').addEventListener('click', () => submitQuickAction());
     panel.querySelector('#gl-sync-parent').addEventListener('click', () => manualSyncWithParent());
+    panel.querySelector('#gl-copy-teams').addEventListener('click', () => copyForTeams());
 
     const target = document.querySelector('#issue\\.views\\.issue-details\\.issue-layout\\.container-right > div > div:nth-child(2) > div:nth-child(3)');
     if (target) {
