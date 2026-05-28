@@ -84,6 +84,30 @@ async function showTagView() {
 
   await autoFetchPatch(projectPath);
   renderTagPreview();
+
+  // Pre-fill tag message with Jira ticket ID if on MR page
+  const messageInput = document.getElementById('tag-message');
+  if (!messageInput.value) {
+    try {
+      const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+      if (tab && tab.url && /\/-\/merge_requests\/\d+/.test(tab.url)) {
+        const [{ result: mrTitle }] = await chrome.scripting.executeScript({
+          target: { tabId: tab.id },
+          func: () => document.querySelector('.merge-request .detail-page-header-body')?.textContent?.trim() 
+            || document.querySelector('.title')?.textContent?.trim()
+            || ''
+        });
+        if (mrTitle) {
+          const { jiraTicketPattern } = await chrome.storage.sync.get({ jiraTicketPattern: '[A-Z]+-\\d+' });
+          const regex = new RegExp(jiraTicketPattern);
+          const match = mrTitle.match(regex);
+          if (match) {
+            messageInput.value = match[0];
+          }
+        }
+      }
+    } catch (_) {}
+  }
 }
 
 async function autoFetchPatch(projectPathOverride) {
