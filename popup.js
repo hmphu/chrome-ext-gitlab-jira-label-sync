@@ -801,4 +801,30 @@ document.getElementById('create-mr-main-to-testing-btn').addEventListener('click
   chrome.tabs.create({ url: mrUrl, active: true });
 });
 
+document.getElementById('create-mr-main-to-release-btn').addEventListener('click', async () => {
+  const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+  if (!tab || !tab.url) return;
+
+  const projectMatch = tab.url.match(/https?:\/\/([^/]+)\/(.+?)\/-\//);
+  const rootMatch = !projectMatch && tab.url.match(/https?:\/\/([^/]+)\/(.+?)(?:\?|#|$)/);
+  const host = projectMatch ? projectMatch[1] : (rootMatch ? rootMatch[1] : null);
+  const projectPath = projectMatch ? projectMatch[2] : (rootMatch ? rootMatch[2].replace(/\/$/, '') : null);
+
+  if (!host || !projectPath) {
+    setStatus('Navigate to a GitLab project page first.', 'error');
+    return;
+  }
+
+  const { gitlabToken } = await chrome.storage.sync.get(['gitlabToken']);
+  const projectId = encodeURIComponent(projectPath);
+  const res = await fetch(`https://${host}/api/v4/projects/${projectId}`, {
+    headers: { 'PRIVATE-TOKEN': gitlabToken }
+  });
+  const project = await res.json();
+  const defaultBranch = project.default_branch || 'main';
+
+  const mrUrl = `https://${host}/${projectPath}/-/merge_requests/new?merge_request[source_branch]=main&merge_request[target_branch]=${encodeURIComponent(defaultBranch)}&merge_request[title]=${encodeURIComponent('Sync main to release')}`;
+  chrome.tabs.create({ url: mrUrl, active: true });
+});
+
 init();

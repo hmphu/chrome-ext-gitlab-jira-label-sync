@@ -195,21 +195,22 @@ h1 {
 
 .footer-grid {
   display: grid;
-  grid-template-columns: repeat(6, 1fr);
+  grid-template-columns: repeat(4, 1fr);
   gap: 5px;
 }
 
-/* row 1: three equal buttons across 2 cols each */
+/* row 1: four MR buttons */
 .footer-grid .footer-btn:nth-child(1),
 .footer-grid .footer-btn:nth-child(2),
-.footer-grid .footer-btn:nth-child(3) {
-  grid-column: span 2;
+.footer-grid .footer-btn:nth-child(3),
+.footer-grid .footer-btn:nth-child(4) {
+  grid-column: span 1;
 }
 
-/* row 2: two buttons fill the 6 cols as 3+3 */
-.footer-grid .footer-btn:nth-child(4),
-.footer-grid .footer-btn:nth-child(5) {
-  grid-column: span 3;
+/* row 2: two buttons fill the 4 cols as 2+2 */
+.footer-grid .footer-btn:nth-child(5),
+.footer-grid .footer-btn:nth-child(6) {
+  grid-column: span 2;
 }
 
 .footer-btn {
