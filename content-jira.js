@@ -217,7 +217,7 @@
       btn.textContent = 'Loading...';
     }
 
-    chrome.storage.sync.get({ teamsWebhookUrl: '' }, (settings) => {
+    chrome.storage.sync.get({ teamsWebhookUrl: '', teamsCustomMessage: '' }, (settings) => {
       if (!settings.teamsWebhookUrl) {
         if (btn) {
           btn.disabled = false;
@@ -250,10 +250,14 @@
         const ticketUrl = window.location.href.split('?')[0];
         const title = (response.title || '').replace(/^\[SIT\]\s*/i, '');
 
-        const text = `🎫 ${ticketId}: ${title}
+        let text = `🎫 ${ticketId}: **${title}**
 🔗 ${ticketUrl}
-🌐 Environment: ${env}
-👤 Current Assignee: ${response.assignee || 'Unassigned'}`;
+🌐 Environment: **${env}**
+👤 Current Assignee: **${response.assignee || 'Unassigned'}**`;
+
+        if (settings.teamsCustomMessage) {
+          text += `\n\n💬 ${settings.teamsCustomMessage}`;
+        }
 
         if (btn) btn.textContent = 'Sending...';
 
@@ -265,14 +269,18 @@
               content: {
                 '$schema': 'http://adaptivecards.io/schemas/adaptive-card.json',
                 type: 'AdaptiveCard',
-                version: '1.2',
+                version: '1.5',
                 body: [
                   {
                     type: 'TextBlock',
                     text: text,
-                    wrap: true
+                    wrap: true,
+                    style: 'default'
                   }
-                ]
+                ],
+                msteams: {
+                  width: 'Full'
+                }
               }
             }
           ]

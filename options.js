@@ -1,7 +1,7 @@
 const form = document.getElementById('settings-form');
 const saveStatus = document.getElementById('save-status');
 
-const fields = ['gitlabBaseUrl', 'gitlabToken', 'gitlabProjects', 'jiraBaseUrl', 'jiraEmail', 'jiraToken', 'jiraPattern', 'defaultPatchPrefix', 'teamsWebhookUrl'];
+const fields = ['gitlabBaseUrl', 'gitlabToken', 'gitlabProjects', 'jiraBaseUrl', 'jiraEmail', 'jiraToken', 'jiraPattern', 'defaultPatchPrefix', 'teamsWebhookUrl', 'teamsCustomMessage'];
 
 async function loadSettings() {
   const settings = await chrome.storage.sync.get({
@@ -16,6 +16,7 @@ async function loadSettings() {
     defaultPatchPrefix: 'p',
     mrDisplayMode: 'jira',
     teamsWebhookUrl: '',
+    teamsCustomMessage: '',
     showCopyForTeams: true,
     showSendToTeams: true
   });
