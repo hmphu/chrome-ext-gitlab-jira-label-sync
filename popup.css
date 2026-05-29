@@ -539,6 +539,44 @@ textarea:focus {
   font-family: 'SFMono-Regular', Consolas, monospace;
 }
 
+.recent-services-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-bottom: 6px;
+}
+
+.recent-services-list:empty {
+  display: none;
+}
+
+.recent-service-item {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  background: #f5f4fb;
+  border: 1px solid #dddaf5;
+  border-radius: 4px;
+  padding: 2px 6px;
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.recent-service-item:hover {
+  background: #ede9fb;
+  border-color: #b9acee;
+}
+
+.recent-service-item input[type="checkbox"] {
+  margin: 0;
+  cursor: pointer;
+}
+
+.recent-service-item label {
+  cursor: pointer;
+  user-select: none;
+}
+
 #tag-results {
   margin-top: 10px;
 }

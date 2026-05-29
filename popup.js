@@ -86,14 +86,23 @@ async function showTagView() {
   renderTagPreview();
 
   // Load recent services
-  const recentServicesSelect = document.getElementById('tag-recent-services');
+  const recentServicesContainer = document.getElementById('tag-recent-services');
   chrome.storage.local.get({ recentServices: [] }, (data) => {
-    recentServicesSelect.innerHTML = '<option value="">— Recent services (click to add) —</option>';
+    recentServicesContainer.innerHTML = '';
     (data.recentServices || []).forEach(service => {
-      const opt = document.createElement('option');
-      opt.value = service;
-      opt.textContent = service;
-      recentServicesSelect.appendChild(opt);
+      const item = document.createElement('div');
+      item.className = 'recent-service-item';
+      const checkbox = document.createElement('input');
+      checkbox.type = 'checkbox';
+      checkbox.id = `recent-svc-${service}`;
+      checkbox.value = service;
+      checkbox.addEventListener('change', () => updateServicesFromCheckboxes());
+      const label = document.createElement('label');
+      label.htmlFor = checkbox.id;
+      label.textContent = service;
+      item.appendChild(checkbox);
+      item.appendChild(label);
+      recentServicesContainer.appendChild(item);
     });
   });
 
@@ -205,19 +214,15 @@ function renderTagPreview() {
   if (el) el.addEventListener('input', renderTagPreview);
 });
 
-document.getElementById('tag-recent-services').addEventListener('change', (e) => {
-  if (e.target.value) {
-    const servicesInput = document.getElementById('tag-services');
-    const current = servicesInput.value.trim();
-    const services = current ? current.split(',').map(s => s.trim()).filter(Boolean) : [];
-    if (!services.includes(e.target.value)) {
-      services.push(e.target.value);
-      servicesInput.value = services.join(', ');
-      renderTagPreview();
-    }
-    e.target.value = '';
-  }
-});
+function updateServicesFromCheckboxes() {
+  const servicesInput = document.getElementById('tag-services');
+  const checkboxes = document.querySelectorAll('#tag-recent-services input[type="checkbox"]:checked');
+  const selected = Array.from(checkboxes).map(cb => cb.value);
+  const current = servicesInput.value.split(',').map(s => s.trim()).filter(Boolean);
+  const merged = [...new Set([...selected, ...current.filter(s => !document.getElementById(`recent-svc-${s}`))])];
+  servicesInput.value = merged.join(', ');
+  renderTagPreview();
+}
 
 document.getElementById('create-tags-btn-footer').addEventListener('click', () => {
   showTagView();
