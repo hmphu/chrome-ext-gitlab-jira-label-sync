@@ -85,6 +85,18 @@ async function showTagView() {
   await autoFetchPatch(projectPath);
   renderTagPreview();
 
+  // Load recent services
+  const recentServicesSelect = document.getElementById('tag-recent-services');
+  chrome.storage.local.get({ recentServices: [] }, (data) => {
+    recentServicesSelect.innerHTML = '<option value="">— Recent services (click to add) —</option>';
+    (data.recentServices || []).forEach(service => {
+      const opt = document.createElement('option');
+      opt.value = service;
+      opt.textContent = service;
+      recentServicesSelect.appendChild(opt);
+    });
+  });
+
   // Pre-fill tag message with Jira ticket ID if on MR page
   const messageInput = document.getElementById('tag-message');
   if (!messageInput.value) {
@@ -193,6 +205,20 @@ function renderTagPreview() {
   if (el) el.addEventListener('input', renderTagPreview);
 });
 
+document.getElementById('tag-recent-services').addEventListener('change', (e) => {
+  if (e.target.value) {
+    const servicesInput = document.getElementById('tag-services');
+    const current = servicesInput.value.trim();
+    const services = current ? current.split(',').map(s => s.trim()).filter(Boolean) : [];
+    if (!services.includes(e.target.value)) {
+      services.push(e.target.value);
+      servicesInput.value = services.join(', ');
+      renderTagPreview();
+    }
+    e.target.value = '';
+  }
+});
+
 document.getElementById('create-tags-btn-footer').addEventListener('click', () => {
   showTagView();
 });
@@ -277,6 +303,20 @@ document.getElementById('create-tags-btn').addEventListener('click', async () =>
       `Done: ${successCount}/${total} tag(s) created.`,
       successCount === total ? 'success' : 'error'
     );
+
+    // Save services to recent services
+    if (successCount > 0) {
+      const servicesRaw = document.getElementById('tag-services').value;
+      const services = servicesRaw.split(',').map(s => s.trim()).filter(Boolean);
+      if (services.length > 0) {
+        chrome.storage.local.get({ recentServices: [] }, (data) => {
+          const existing = new Set(data.recentServices || []);
+          services.forEach(s => existing.add(s));
+          const updated = [...existing].slice(0, 20);
+          chrome.storage.local.set({ recentServices: updated });
+        });
+      }
+    }
   } catch (e) {
     setStatus(`Failed: ${e.message}`, 'error');
   }
