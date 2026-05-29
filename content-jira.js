@@ -509,6 +509,9 @@
             </div>
             <div class="gl-qa-field">
               <label class="gl-qa-label">Comment</label>
+              <select class="gl-qa-select gl-qa-recent-comments" id="gl-qa-recent-comments" style="margin-bottom:4px">
+                <option value="">— Recent comments —</option>
+              </select>
               <textarea class="gl-qa-textarea" id="gl-qa-comment" placeholder="Add a comment..."></textarea>
             </div>
             <label class="gl-qa-checkbox">
@@ -545,6 +548,12 @@
     });
     panel.querySelector('.gl-qa-refresh').addEventListener('click', () => loadQuickActionData());
     panel.querySelector('#gl-qa-submit').addEventListener('click', () => submitQuickAction());
+    panel.querySelector('#gl-qa-recent-comments').addEventListener('change', (e) => {
+      if (e.target.value) {
+        panel.querySelector('#gl-qa-comment').value = e.target.value;
+        e.target.value = '';
+      }
+    });
     panel.querySelector('#gl-sync-parent').addEventListener('click', () => manualSyncWithParent());
     panel.querySelector('#gl-copy-teams').addEventListener('click', () => copyForTeams());
     panel.querySelector('#gl-send-teams').addEventListener('click', () => sendToTeams());
@@ -863,6 +872,20 @@
       console.log('[GitLab Toolbox] assigneeSelect populated with', (response.users || []).length, 'users');
       checkComplete();
     });
+
+    // Load recent comments
+    chrome.storage.local.get({ recentComments: [] }, (data) => {
+      const panel = document.getElementById('gl-mr-panel');
+      const recentCommentsSelect = panel?.querySelector('#gl-qa-recent-comments');
+      if (!recentCommentsSelect) return;
+      recentCommentsSelect.innerHTML = '<option value="">— Recent comments —</option>';
+      (data.recentComments || []).forEach(comment => {
+        const opt = document.createElement('option');
+        opt.value = comment;
+        opt.textContent = comment.length > 50 ? comment.substring(0, 50) + '...' : comment;
+        recentCommentsSelect.appendChild(opt);
+      });
+    });
   }
 
   function submitQuickAction() {
@@ -918,6 +941,14 @@
       statusMsg.textContent = 'Success! Reloading...';
       statusMsg.className = 'gl-qa-status-msg gl-qa-status success';
       statusMsg.style.display = '';
+
+      // Save comment to recent comments
+      if (comment) {
+        chrome.storage.local.get({ recentComments: [] }, (data) => {
+          const updated = [comment, ...data.recentComments.filter(c => c !== comment)].slice(0, 10);
+          chrome.storage.local.set({ recentComments: updated });
+        });
+      }
 
       statusSelect.value = '';
       assigneeSelect.value = '';
