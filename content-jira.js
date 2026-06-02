@@ -614,8 +614,14 @@
       if (rel.subtasks) rel.subtasks.forEach(relSt => { if (relSt.mrs.length > 0) allTicketIds.push(relSt.ticketId); });
     });
     const states = [...new Set(allMRs.map(mr => mr.state))];
+    const envs = [...new Set(allMRs.map(mr => {
+      if (/^(main|master)$/.test(mr.targetBranch)) return 'PROD';
+      if (/^releases?\//.test(mr.targetBranch)) return 'UAT';
+      if (/^(testing|develop|dev)$/.test(mr.targetBranch)) return 'DEV';
+      return '';
+    }).filter(Boolean))];
 
-    if (allMRs.length > 0 && (allTicketIds.length > 1 || states.length > 1)) {
+    if (allMRs.length > 0 && (allTicketIds.length > 1 || states.length > 1 || envs.length > 1)) {
       const filterRow = document.createElement('div');
       filterRow.className = 'gl-mr-filter-row';
 
@@ -635,6 +641,15 @@
         sf.innerHTML = `<option value="">All states</option>` + states.map(s => `<option value="${s}">${s}</option>`).join('');
         sf.addEventListener('change', applyFilters);
         filterRow.appendChild(sf);
+      }
+
+      if (envs.length > 1) {
+        const ef = document.createElement('select');
+        ef.className = 'gl-mr-filter';
+        ef.dataset.filterType = 'env';
+        ef.innerHTML = `<option value="">All envs</option>` + envs.map(e => `<option value="${e}">${e}</option>`).join('');
+        ef.addEventListener('change', applyFilters);
+        filterRow.appendChild(ef);
       }
 
       body.appendChild(filterRow);
@@ -706,12 +721,15 @@
     function applyFilters() {
       const ticketVal = body.querySelector('[data-filter-type="ticket"]')?.value || '';
       const stateVal = body.querySelector('[data-filter-type="state"]')?.value || '';
+      const envVal = body.querySelector('[data-filter-type="env"]')?.value || '';
       body.querySelectorAll('.gl-mr-filter-section').forEach(s => {
         const ticketMatch = !ticketVal || s.dataset.ticketId === ticketVal;
         s.style.display = ticketMatch ? '' : 'none';
         if (ticketMatch) {
           s.querySelectorAll('.gl-mr-item').forEach(item => {
-            item.style.display = (!stateVal || item.dataset.mrState === stateVal) ? '' : 'none';
+            const stateMatch = !stateVal || item.dataset.mrState === stateVal;
+            const envMatch = !envVal || item.dataset.mrEnv === envVal;
+            item.style.display = (stateMatch && envMatch) ? '' : 'none';
           });
         }
       });
@@ -735,9 +753,13 @@
     const item = document.createElement('div');
     item.className = `gl-mr-item ${mr.state}`;
     item.dataset.mrState = mr.state;
-    const envBadge = /^(main|master)$/.test(mr.targetBranch) ? '<span class="gl-mr-env prod">PROD</span>'
-      : /^releases?\//.test(mr.targetBranch) ? '<span class="gl-mr-env uat">UAT</span>'
-      : /^(testing|develop|dev)$/.test(mr.targetBranch) ? '<span class="gl-mr-env dev">DEV</span>' : '';
+    const env = /^(main|master)$/.test(mr.targetBranch) ? 'PROD'
+      : /^releases?\//.test(mr.targetBranch) ? 'UAT'
+      : /^(testing|develop|dev)$/.test(mr.targetBranch) ? 'DEV' : '';
+    item.dataset.mrEnv = env;
+    const envBadge = env === 'PROD' ? '<span class="gl-mr-env prod">PROD</span>'
+      : env === 'UAT' ? '<span class="gl-mr-env uat">UAT</span>'
+      : env === 'DEV' ? '<span class="gl-mr-env dev">DEV</span>' : '';
     const mergedTime = mr.state === 'merged' ? formatMergedTime(mr.mergedAt) : '';
     item.innerHTML = `
       <a href="${mr.webUrl}" target="_blank">!${mr.mrIid} ${mr.title}</a> ${envBadge}
