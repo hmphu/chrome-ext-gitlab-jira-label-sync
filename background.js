@@ -868,6 +868,62 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     return true;
   }
 
+  if (request.action === 'searchOldTags') {
+    (async () => {
+      const settings = await getSettings();
+      if (!settings.gitlabToken || !settings.gitlabBaseUrl) {
+        sendResponse({ error: 'Please configure GitLab credentials in Settings.' });
+        return;
+      }
+      const { projectPath, days, pattern } = request;
+      const encoded = encodeURIComponent(projectPath);
+      const cutoff = new Date(Date.now() - days * 86400000);
+      try {
+        let allTags = [];
+        let page = 1;
+        while (true) {
+          const searchParam = pattern ? `&search=${encodeURIComponent(pattern)}` : '';
+          const tags = await gitlabFetch(settings, `projects/${encoded}/repository/tags?per_page=100&page=${page}${searchParam}`);
+          if (!tags || tags.length === 0) break;
+          allTags = allTags.concat(tags);
+          if (tags.length < 100) break;
+          page++;
+        }
+        const oldTags = allTags.filter(tag => {
+          const commitDate = new Date(tag.commit?.created_at || tag.commit?.committed_date || 0);
+          return commitDate < cutoff;
+        }).map(tag => ({ name: tag.name, date: tag.commit?.created_at || tag.commit?.committed_date }));
+        sendResponse({ tags: oldTags });
+      } catch (e) {
+        sendResponse({ error: e.message });
+      }
+    })();
+    return true;
+  }
+
+  if (request.action === 'deleteOldTags') {
+    (async () => {
+      const settings = await getSettings();
+      if (!settings.gitlabToken || !settings.gitlabBaseUrl) {
+        sendResponse({ error: 'Please configure GitLab credentials in Settings.' });
+        return;
+      }
+      const { projectPath, tagNames } = request;
+      const encoded = encodeURIComponent(projectPath);
+      const results = [];
+      for (const tagName of tagNames) {
+        try {
+          await gitlabFetch(settings, `projects/${encoded}/repository/tags/${encodeURIComponent(tagName)}`, { method: 'DELETE' });
+          results.push({ tagName, status: 'success' });
+        } catch (e) {
+          results.push({ tagName, status: 'error', message: e.message });
+        }
+      }
+      sendResponse({ results });
+    })();
+    return true;
+  }
+
   if (request.action === 'checkSubtasksStatus') {
     (async () => {
       const settings = await getSettings();

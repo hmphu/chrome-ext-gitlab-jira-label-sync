@@ -75,6 +75,23 @@
 
       <button id="create-tags-btn" class="btn-primary"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20.59 13.41l-7.17 7.17a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.82z"/><line x1="7" y1="7" x2="7.01" y2="7"/></svg> Create Tags</button>
       <div id="tag-results" class="results"></div>
+
+      <hr style="margin:16px 0;border:none;border-top:1px solid #eee">
+
+      <div class="form-group">
+        <label>🗑 Delete Old Tags</label>
+        <div style="display:flex;gap:6px;align-items:center;margin-bottom:6px">
+          <span style="font-size:11px">Older than</span>
+          <input type="number" id="delete-tags-days" class="input-field" style="width:60px" min="1" value="30">
+          <span style="font-size:11px">days</span>
+          <input type="text" id="delete-tags-pattern" class="input-field" style="flex:1" placeholder="Tag pattern (e.g. v2024*)">
+        </div>
+        <div style="display:flex;gap:6px">
+          <button id="search-old-tags-btn" class="btn-primary" style="flex:1;font-size:11px;padding:6px">🔍 Search Tags</button>
+          <button id="delete-old-tags-btn" class="btn-primary" style="flex:1;font-size:11px;padding:6px;background:#c62828" disabled>🗑 Delete Found Tags</button>
+        </div>
+        <div id="delete-tags-results" class="results"></div>
+      </div>
     </div>
 
     <div class="footer">

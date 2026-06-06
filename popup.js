@@ -330,6 +330,115 @@ document.getElementById('create-tags-btn').addEventListener('click', async () =>
   btn.textContent = 'Create Tags';
 });
 
+let foundOldTags = [];
+
+document.getElementById('search-old-tags-btn').addEventListener('click', async () => {
+  const days = parseInt(document.getElementById('delete-tags-days').value) || 30;
+  const pattern = document.getElementById('delete-tags-pattern').value.trim();
+  const resultsEl = document.getElementById('delete-tags-results');
+  const deleteBtn = document.getElementById('delete-old-tags-btn');
+  const searchBtn = document.getElementById('search-old-tags-btn');
+
+  resultsEl.innerHTML = '';
+  deleteBtn.disabled = true;
+  foundOldTags = [];
+
+  const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+  if (!tab || !tab.url) {
+    setStatus('Cannot determine the active tab URL.', 'error');
+    return;
+  }
+
+  const projectMatch = tab.url.match(/https?:\/\/([^/]+)\/(.+?)\/-\//);
+  const rootMatch = !projectMatch && tab.url.match(/https?:\/\/([^/]+)\/(.+?)(?:\?|#|$)/);
+  const projectPath = projectMatch ? projectMatch[2] : (rootMatch ? rootMatch[2].replace(/\/$/, '') : null);
+
+  if (!projectPath) {
+    setStatus('Navigate to a GitLab project page first.', 'error');
+    return;
+  }
+
+  searchBtn.disabled = true;
+  searchBtn.textContent = '🔍 Searching...';
+
+  try {
+    const result = await chrome.runtime.sendMessage({
+      action: 'searchOldTags',
+      projectPath,
+      days,
+      pattern
+    });
+
+    if (result.error) {
+      setStatus(result.error, 'error');
+    } else {
+      foundOldTags = result.tags || [];
+      if (foundOldTags.length === 0) {
+        resultsEl.innerHTML = '<div class="result-item success">No tags found matching criteria.</div>';
+      } else {
+        resultsEl.innerHTML = `<div class="result-item" style="font-weight:600;margin-bottom:4px">Found ${foundOldTags.length} tag(s) older than ${days} days:</div>` +
+          foundOldTags.map(t => `<div class="result-item" style="font-size:11px">${t.name} <span style="color:#999">(${new Date(t.date).toLocaleDateString()})</span></div>`).join('');
+        deleteBtn.disabled = false;
+      }
+    }
+  } catch (e) {
+    setStatus(`Failed: ${e.message}`, 'error');
+  }
+
+  searchBtn.disabled = false;
+  searchBtn.textContent = '🔍 Search Tags';
+});
+
+document.getElementById('delete-old-tags-btn').addEventListener('click', async () => {
+  if (foundOldTags.length === 0) return;
+
+  if (!confirm(`Are you sure you want to delete ${foundOldTags.length} tag(s)? This cannot be undone.`)) return;
+
+  const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+  if (!tab || !tab.url) return;
+
+  const projectMatch = tab.url.match(/https?:\/\/([^/]+)\/(.+?)\/-\//);
+  const rootMatch = !projectMatch && tab.url.match(/https?:\/\/([^/]+)\/(.+?)(?:\?|#|$)/);
+  const projectPath = projectMatch ? projectMatch[2] : (rootMatch ? rootMatch[2].replace(/\/$/, '') : null);
+
+  if (!projectPath) return;
+
+  const deleteBtn = document.getElementById('delete-old-tags-btn');
+  const resultsEl = document.getElementById('delete-tags-results');
+  deleteBtn.disabled = true;
+  deleteBtn.textContent = `🗑 Deleting 0/${foundOldTags.length}...`;
+
+  try {
+    const result = await chrome.runtime.sendMessage({
+      action: 'deleteOldTags',
+      projectPath,
+      tagNames: foundOldTags.map(t => t.name)
+    });
+
+    if (result.error) {
+      setStatus(result.error, 'error');
+    } else {
+      const successCount = result.results.filter(r => r.status === 'success').length;
+      resultsEl.innerHTML = '';
+      result.results.forEach(r => {
+        const item = document.createElement('div');
+        item.className = `result-item ${r.status}`;
+        item.innerHTML = r.status === 'success'
+          ? `<strong>${r.tagName}</strong> — deleted`
+          : `<strong>${r.tagName}</strong> — ${r.message || 'failed'}`;
+        resultsEl.appendChild(item);
+      });
+      setStatus(`Deleted ${successCount}/${result.results.length} tag(s).`, successCount === result.results.length ? 'success' : 'error');
+      foundOldTags = [];
+    }
+  } catch (e) {
+    setStatus(`Failed: ${e.message}`, 'error');
+  }
+
+  deleteBtn.disabled = true;
+  deleteBtn.textContent = '🗑 Delete Found Tags';
+});
+
 function renderMRList(mrs) {
   mrListEl.innerHTML = '';
   if (!mrs || mrs.length === 0) return;
