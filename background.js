@@ -905,12 +905,15 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     (async () => {
       const settings = await getSettings();
       if (!settings.gitlabToken || !settings.gitlabBaseUrl) {
-        sendResponse({ error: 'Please configure GitLab credentials in Settings.' });
+        await chrome.storage.local.set({ deleteTagsProgress: { running: false, total: 0, deleted: 0, errors: 0, results: [], error: 'Please configure GitLab credentials in Settings.' } });
         return;
       }
       const { projectPath, tagNames } = request;
       const encoded = encodeURIComponent(projectPath);
+
       const results = [];
+      await chrome.storage.local.set({ deleteTagsProgress: { running: true, total: tagNames.length, deleted: 0, errors: 0, results: [] } });
+
       for (const tagName of tagNames) {
         try {
           await gitlabFetch(settings, `projects/${encoded}/repository/tags/${encodeURIComponent(tagName)}`, { method: 'DELETE' });
@@ -918,10 +921,29 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
         } catch (e) {
           results.push({ tagName, status: 'error', message: e.message });
         }
+        await chrome.storage.local.set({
+          deleteTagsProgress: {
+            running: true,
+            total: tagNames.length,
+            deleted: results.filter(r => r.status === 'success').length,
+            errors: results.filter(r => r.status === 'error').length,
+            results
+          }
+        });
       }
-      sendResponse({ results });
+
+      await chrome.storage.local.set({
+        deleteTagsProgress: {
+          running: false,
+          total: tagNames.length,
+          deleted: results.filter(r => r.status === 'success').length,
+          errors: results.filter(r => r.status === 'error').length,
+          results
+        }
+      });
     })();
-    return true;
+    sendResponse({ started: true });
+    return false;
   }
 
   if (request.action === 'checkSubtasksStatus') {

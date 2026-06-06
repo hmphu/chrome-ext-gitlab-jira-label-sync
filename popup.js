@@ -408,19 +408,26 @@ document.getElementById('delete-old-tags-btn').addEventListener('click', async (
   deleteBtn.disabled = true;
   deleteBtn.textContent = `🗑 Deleting 0/${foundOldTags.length}...`;
 
-  try {
-    const result = await chrome.runtime.sendMessage({
-      action: 'deleteOldTags',
-      projectPath,
-      tagNames: foundOldTags.map(t => t.name)
-    });
+  await chrome.storage.local.remove('deleteTagsProgress');
 
-    if (result.error) {
-      setStatus(result.error, 'error');
-    } else {
-      const successCount = result.results.filter(r => r.status === 'success').length;
+  chrome.runtime.sendMessage({
+    action: 'deleteOldTags',
+    projectPath,
+    tagNames: foundOldTags.map(t => t.name)
+  });
+
+  // Poll progress from storage
+  const pollInterval = setInterval(async () => {
+    const { deleteTagsProgress } = await chrome.storage.local.get('deleteTagsProgress');
+    if (!deleteTagsProgress) return;
+
+    const done = deleteTagsProgress.deleted + deleteTagsProgress.errors;
+    deleteBtn.textContent = `🗑 Deleting ${done}/${deleteTagsProgress.total}...`;
+
+    if (!deleteTagsProgress.running) {
+      clearInterval(pollInterval);
       resultsEl.innerHTML = '';
-      result.results.forEach(r => {
+      deleteTagsProgress.results.forEach(r => {
         const item = document.createElement('div');
         item.className = `result-item ${r.status}`;
         item.innerHTML = r.status === 'success'
@@ -428,15 +435,13 @@ document.getElementById('delete-old-tags-btn').addEventListener('click', async (
           : `<strong>${r.tagName}</strong> — ${r.message || 'failed'}`;
         resultsEl.appendChild(item);
       });
-      setStatus(`Deleted ${successCount}/${result.results.length} tag(s).`, successCount === result.results.length ? 'success' : 'error');
+      setStatus(`Deleted ${deleteTagsProgress.deleted}/${deleteTagsProgress.total} tag(s).`, deleteTagsProgress.errors === 0 ? 'success' : 'error');
       foundOldTags = [];
+      deleteBtn.disabled = true;
+      deleteBtn.textContent = '🗑 Delete Found Tags';
+      await chrome.storage.local.remove('deleteTagsProgress');
     }
-  } catch (e) {
-    setStatus(`Failed: ${e.message}`, 'error');
-  }
-
-  deleteBtn.disabled = true;
-  deleteBtn.textContent = '🗑 Delete Found Tags';
+  }, 500);
 });
 
 function renderMRList(mrs) {
