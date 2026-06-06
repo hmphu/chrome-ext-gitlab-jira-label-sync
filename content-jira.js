@@ -635,7 +635,7 @@
           if (env === 'DEV') return /^(testing|develop|dev)$/.test(mr.targetBranch);
           return false;
         });
-        const allMerged = envMRs.every(mr => mr.state === 'merged');
+        const allMerged = envMRs.every(mr => mr.state === 'merged' || mr.state === 'closed');
         const icon = allMerged ? '✅' : '❌';
         return `<span class="gl-mr-env-status">${icon} ${env}</span>`;
       }).join(' ');
