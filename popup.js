@@ -89,7 +89,7 @@ async function showTagView() {
   const recentServicesContainer = document.getElementById('tag-recent-services');
   chrome.storage.local.get({ recentServices: [] }, (data) => {
     recentServicesContainer.innerHTML = '';
-    (data.recentServices || []).forEach(service => {
+    (data.recentServices || []).sort((a, b) => a.localeCompare(b)).forEach(service => {
       const item = document.createElement('div');
       item.className = 'recent-service-item';
       const checkbox = document.createElement('input');
