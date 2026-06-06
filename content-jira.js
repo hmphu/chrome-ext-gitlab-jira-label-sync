@@ -423,6 +423,8 @@
       #gl-mr-panel .gl-mr-env.uat{background:#fff3e0;color:#e65100}
       #gl-mr-panel .gl-mr-env.dev{background:#e3f2fd;color:#1565c0}
       #gl-mr-panel .gl-mr-filter-row{display:flex;gap:4px;margin-bottom:8px}
+      #gl-mr-panel .gl-mr-env-summary{display:flex;gap:8px;margin-bottom:8px;font-size:11px;font-weight:500}
+      #gl-mr-panel .gl-mr-env-status{padding:2px 6px;border-radius:3px;background:#f5f5f5}
       #gl-mr-panel .gl-mr-filter{flex:1;padding:4px 6px;border:1px solid #d0c8f0;border-radius:4px;font-size:11px;background:#faf8ff;color:#333}
       #gl-mr-panel .gl-mr-related-header{font-size:11px;font-weight:600;color:#1565c0;padding:4px 6px;margin:8px 0 4px;background:#e3f2fd;border-radius:3px}
       #gl-mr-panel .gl-mr-related-section{border-left:3px solid #1565c0;padding-left:4px}
@@ -620,6 +622,25 @@
       if (/^(testing|develop|dev)$/.test(mr.targetBranch)) return 'DEV';
       return '';
     }).filter(Boolean))];
+
+    // Environment merge summary
+    if (envs.length > 0) {
+      const envSummary = document.createElement('div');
+      envSummary.className = 'gl-mr-env-summary';
+      const envOrder = ['DEV', 'UAT', 'PROD'];
+      envSummary.innerHTML = envOrder.filter(e => envs.includes(e)).map(env => {
+        const envMRs = allMRs.filter(mr => {
+          if (env === 'PROD') return /^(main|master)$/.test(mr.targetBranch);
+          if (env === 'UAT') return /^releases?\//.test(mr.targetBranch);
+          if (env === 'DEV') return /^(testing|develop|dev)$/.test(mr.targetBranch);
+          return false;
+        });
+        const allMerged = envMRs.every(mr => mr.state === 'merged');
+        const icon = allMerged ? '✅' : '❌';
+        return `<span class="gl-mr-env-status">${icon} ${env}</span>`;
+      }).join(' ');
+      body.appendChild(envSummary);
+    }
 
     if (allMRs.length > 0 && (allTicketIds.length > 1 || states.length > 1 || envs.length > 1)) {
       const filterRow = document.createElement('div');
