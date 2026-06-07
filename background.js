@@ -410,13 +410,13 @@ async function searchGitlabMRsForTicket(settings, ticketId) {
     const addMR = (mr) => {
       if (seen.has(mr.iid)) return;
       const rawPattern = (settings.jiraPattern || '[A-Z][A-Z0-9]+-\\d+').replace(/^\^/, '').replace(/\$$/, '');
-      const pattern = new RegExp(rawPattern);
-      const titleMatch = (mr.title || '').match(pattern);
-      const descMatch = (mr.description || '').match(pattern);
-      const branchMatch = (mr.source_branch || '').match(pattern);
-      const foundTicket = (titleMatch && titleMatch[0]) || (descMatch && descMatch[0]) || (branchMatch && branchMatch[0]);
-      console.log(`[GitLab Toolbox] addMR !${mr.iid} "${mr.title}" branch=${mr.source_branch} foundTicket=${foundTicket} expected=${ticketId}`);
-      if (foundTicket === ticketId) {
+      const pattern = new RegExp(rawPattern, 'g');
+      const titleMatches = (mr.title || '').match(pattern) || [];
+      const descMatches = (mr.description || '').match(pattern) || [];
+      const branchMatches = (mr.source_branch || '').match(pattern) || [];
+      const allMatches = [...titleMatches, ...descMatches, ...branchMatches];
+      console.log(`[GitLab Toolbox] addMR !${mr.iid} "${mr.title}" branch=${mr.source_branch} matches=[${allMatches}] expected=${ticketId}`);
+      if (allMatches.includes(ticketId)) {
         seen.add(mr.iid);
         results.push({
           title: mr.title,
