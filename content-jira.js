@@ -1020,7 +1020,9 @@
       loadQuickActionData();
 
       chrome.runtime.sendMessage({ action: 'lookupMRs', ticketId }, (response) => {
+        console.log('[GitLab Toolbox] lookupMRs response:', JSON.stringify(response, null, 2));
         if (chrome.runtime.lastError) {
+          console.error('[GitLab Toolbox] lookupMRs error:', chrome.runtime.lastError);
           renderMRPanel({ error: 'Extension error' });
           return;
         }
