@@ -415,6 +415,7 @@ async function searchGitlabMRsForTicket(settings, ticketId) {
       const descMatch = (mr.description || '').match(pattern);
       const branchMatch = (mr.source_branch || '').match(pattern);
       const foundTicket = (titleMatch && titleMatch[0]) || (descMatch && descMatch[0]) || (branchMatch && branchMatch[0]);
+      console.log(`[GitLab Toolbox] addMR !${mr.iid} "${mr.title}" branch=${mr.source_branch} foundTicket=${foundTicket} expected=${ticketId}`);
       if (foundTicket === ticketId) {
         seen.add(mr.iid);
         results.push({
@@ -432,9 +433,12 @@ async function searchGitlabMRsForTicket(settings, ticketId) {
 
     try {
       // Search by title/description
-      const mrs = await gitlabFetch(settings, `projects/${encoded}/merge_requests?search=${encodeURIComponent(ticketId)}&in=title,description&state=all&per_page=100`);
+      const mrs = await gitlabFetch(settings, `projects/${encoded}/merge_requests?search=${encodeURIComponent(ticketId)}&state=all&per_page=100`);
+      console.log(`[GitLab Toolbox] MR search for "${ticketId}" in ${projectPath}: found ${mrs.length} results`);
       mrs.forEach(addMR);
-    } catch (e) {}
+    } catch (e) {
+      console.error(`[GitLab Toolbox] MR search error for "${ticketId}" in ${projectPath}:`, e.message);
+    }
 
     try {
       // Search by source_branch: find branches containing the ticket ID
