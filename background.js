@@ -432,7 +432,7 @@ async function searchGitlabMRsForTicket(settings, ticketId) {
 
     try {
       // Search by title/description
-      const mrs = await gitlabFetch(settings, `projects/${encoded}/merge_requests?search=${ticketId}&state=all&per_page=100`);
+      const mrs = await gitlabFetch(settings, `projects/${encoded}/merge_requests?search=${encodeURIComponent(ticketId)}&in=title,description&state=all&per_page=100`);
       mrs.forEach(addMR);
     } catch (e) {}
 
