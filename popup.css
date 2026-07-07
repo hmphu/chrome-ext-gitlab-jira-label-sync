@@ -500,6 +500,24 @@ textarea:focus {
   border-bottom: 2px solid #f3e8fd;
 }
 
+.tag-branch-radios {
+  display: flex;
+  gap: 12px;
+}
+
+.tag-branch-radio {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.tag-branch-radio input[type="radio"] {
+  margin: 0;
+  accent-color: #6b4fbb;
+}
+
 .tag-version-row {
   display: flex;
   align-items: flex-end;

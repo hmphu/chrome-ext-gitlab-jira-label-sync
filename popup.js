@@ -13,6 +13,7 @@ const optionsLink = document.getElementById('options-link');
 
 let extractedData = null;
 let pollTimer = null;
+let storedReleaseBranch = 'main';
 
 function setStatus(message, type) {
   statusEl.textContent = message;
@@ -53,34 +54,49 @@ async function showTagView() {
     prefixInput.value = defaultPatchPrefix;
   }
 
-  const branchInput = document.getElementById('tag-source-branch');
+  const branchRadios = document.querySelectorAll('input[name="tag-source-branch"]');
+  const branchOtherInput = document.getElementById('tag-source-branch-other');
+  storedReleaseBranch = 'main';
   let projectPath = null;
 
-  if (!branchInput.value) {
-    branchInput.placeholder = 'Loading…';
-    try {
-      const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-      if (tab && tab.url) {
-        const projectMatch = tab.url.match(/https?:\/\/([^/]+)\/(.+?)\/-\//);
-        const rootMatch = !projectMatch && tab.url.match(/https?:\/\/([^/]+)\/(.+?)(?:\?|#|$)/);
-        projectPath = projectMatch ? projectMatch[2] : (rootMatch ? rootMatch[2].replace(/\/$/, '') : null);
-        if (projectPath) {
-          const settings = await chrome.storage.sync.get({ gitlabToken: '', gitlabBaseUrl: '' });
-          if (settings.gitlabToken && settings.gitlabBaseUrl) {
-            const encoded = encodeURIComponent(projectPath);
-            const res = await fetch(`${settings.gitlabBaseUrl.replace(/\/$/, '')}/api/v4/projects/${encoded}`, {
-              headers: { 'PRIVATE-TOKEN': settings.gitlabToken }
-            });
-            if (res.ok) {
-              const project = await res.json();
-              branchInput.value = project.default_branch || '';
-            }
+  try {
+    const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+    if (tab && tab.url) {
+      const projectMatch = tab.url.match(/https?:\/\/([^/]+)\/(.+?)\/-\//);
+      const rootMatch = !projectMatch && tab.url.match(/https?:\/\/([^/]+)\/(.+?)(?:\?|#|$)/);
+      projectPath = projectMatch ? projectMatch[2] : (rootMatch ? rootMatch[2].replace(/\/$/, '') : null);
+      if (projectPath) {
+        const settings = await chrome.storage.sync.get({ gitlabToken: '', gitlabBaseUrl: '' });
+        if (settings.gitlabToken && settings.gitlabBaseUrl) {
+          const encoded = encodeURIComponent(projectPath);
+          const res = await fetch(`${settings.gitlabBaseUrl.replace(/\/$/, '')}/api/v4/projects/${encoded}`, {
+            headers: { 'PRIVATE-TOKEN': settings.gitlabToken }
+          });
+          if (res.ok) {
+            const project = await res.json();
+            storedReleaseBranch = project.default_branch || 'main';
           }
         }
       }
-    } catch (_) {}
-    branchInput.placeholder = 'e.g. main';
+    }
+  } catch (_) {}
+
+  function handleBranchChange() {
+    const selected = document.querySelector('input[name="tag-source-branch"]:checked');
+    if (!selected) return;
+    const envInput = document.getElementById('tag-env');
+    if (selected.value === 'main') {
+      envInput.value = '';
+    } else if (selected.value === 'release') {
+      envInput.value = 'stag';
+    }
+    branchOtherInput.style.display = selected.value === 'other' ? '' : 'none';
+    renderTagPreview();
   }
+
+  branchRadios.forEach(radio => radio.addEventListener('change', handleBranchChange));
+  branchOtherInput.addEventListener('input', renderTagPreview);
+  handleBranchChange();
 
   await autoFetchPatch(projectPath);
   renderTagPreview();
@@ -129,6 +145,14 @@ async function showTagView() {
       }
     } catch (_) {}
   }
+}
+
+function getSelectedBranch() {
+  const selected = document.querySelector('input[name="tag-source-branch"]:checked');
+  if (!selected) return '';
+  if (selected.value === 'main') return 'main';
+  if (selected.value === 'release') return storedReleaseBranch;
+  return document.getElementById('tag-source-branch-other').value.trim();
 }
 
 async function autoFetchPatch(projectPathOverride) {
@@ -229,7 +253,7 @@ document.getElementById('create-tags-btn-footer').addEventListener('click', () =
 });
 
 document.getElementById('create-tags-btn').addEventListener('click', async () => {
-  const sourceBranch = document.getElementById('tag-source-branch').value.trim();
+  const sourceBranch = getSelectedBranch();
   const message = document.getElementById('tag-message').value.trim();
   const tagResultsEl = document.getElementById('tag-results');
   const btn = document.getElementById('create-tags-btn');

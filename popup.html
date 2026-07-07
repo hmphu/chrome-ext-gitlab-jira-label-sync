@@ -27,8 +27,13 @@
       <div class="tag-view-header">🏷 Bulk Tag Creator</div>
 
       <div class="form-group">
-        <label for="tag-source-branch">Source Branch</label>
-        <input type="text" id="tag-source-branch" class="input-field input-full" placeholder="e.g. main">
+        <label>Source Branch</label>
+        <div class="tag-branch-radios">
+          <label class="tag-branch-radio"><input type="radio" name="tag-source-branch" value="main"> main</label>
+          <label class="tag-branch-radio"><input type="radio" name="tag-source-branch" value="release" checked> release</label>
+          <label class="tag-branch-radio"><input type="radio" name="tag-source-branch" value="other"> other</label>
+        </div>
+        <input type="text" id="tag-source-branch-other" class="input-field input-full" placeholder="e.g. feature/branch" style="display:none">
       </div>
 
       <div class="form-group">
