@@ -3,7 +3,7 @@
   "name": "GitLab Jira Tools",
   "version": "1.0.0",
   "description": "Sync Jira ticket labels to GitLab merge requests automatically",
-  "permissions": ["storage", "activeTab", "tabs", "contextMenus", "notifications"],
+  "permissions": ["storage", "activeTab", "tabs", "contextMenus", "notifications", "scripting"],
   "host_permissions": ["https://*/*"],
   "background": {
     "service_worker": "background.js"

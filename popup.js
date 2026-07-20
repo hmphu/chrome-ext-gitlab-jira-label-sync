@@ -10,6 +10,7 @@ const jiraTicketEl = document.getElementById('jira-ticket');
 const lookupBtn = document.getElementById('lookup-btn');
 const jiraResultsEl = document.getElementById('jira-results');
 const optionsLink = document.getElementById('options-link');
+const mrButtons = ['create-mr-testing-btn','create-mr-main-btn','create-mr-main-to-testing-btn','create-mr-main-to-release-btn'].map(id => document.getElementById(id));
 
 let extractedData = null;
 let pollTimer = null;
@@ -25,12 +26,14 @@ function showGitlabView() {
   gitlabView.style.display = '';
   jiraView.style.display = 'none';
   tagView.style.display = 'none';
+  mrButtons.forEach(b => b && (b.style.display = ''));
 }
 
 function showJiraView() {
   gitlabView.style.display = 'none';
   jiraView.style.display = '';
   tagView.style.display = 'none';
+  mrButtons.forEach(b => b && (b.style.display = ''));
 }
 
 async function showTagView() {
@@ -38,6 +41,7 @@ async function showTagView() {
   jiraView.style.display = 'none';
   tagView.style.display = '';
   statusEl.style.display = 'none';
+  mrButtons.forEach(b => b && (b.style.display = 'none'));
 
   const dateInput = document.getElementById('tag-date');
   if (!dateInput.value) {
@@ -122,25 +126,73 @@ async function showTagView() {
     });
   });
 
-  // Pre-fill tag message with Jira ticket ID if on MR page
+  // Pre-fill tag message with Jira ticket ID from MR title or Overview
   const messageInput = document.getElementById('tag-message');
   if (!messageInput.value) {
     try {
       const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
       if (tab && tab.url && /\/-\/merge_requests\/\d+/.test(tab.url)) {
-        const [{ result: mrTitle }] = await chrome.scripting.executeScript({
-          target: { tabId: tab.id },
-          func: () => document.querySelector('.merge-request .detail-page-header-body')?.textContent?.trim() 
-            || document.querySelector('.title')?.textContent?.trim()
-            || ''
+        const { jiraPattern, jiraTicketPattern } = await chrome.storage.sync.get({
+          jiraPattern: '[A-Z][A-Z0-9]+-\\d+',
+          jiraTicketPattern: ''
         });
-        if (mrTitle) {
-          const { jiraTicketPattern } = await chrome.storage.sync.get({ jiraTicketPattern: '[A-Z]+-\\d+' });
-          const regex = new RegExp(jiraTicketPattern);
-          const match = mrTitle.match(regex);
-          if (match) {
-            messageInput.value = match[0];
-          }
+        const rawPattern = (jiraTicketPattern || jiraPattern || '[A-Z][A-Z0-9]+-\\d+')
+          .replace(/^\^/, '').replace(/\$$/, '');
+        const [{ result: ticketId }] = await chrome.scripting.executeScript({
+          target: { tabId: tab.id },
+          func: (patternStr) => {
+            const pattern = new RegExp(patternStr);
+            const globalPattern = new RegExp(patternStr, 'g');
+
+            function firstMatch(text) {
+              if (!text) return null;
+              const m = text.match(pattern);
+              return m ? m[0] : null;
+            }
+
+            // 1) MR title
+            const titleEl = document.querySelector(
+              '.detail-page-header .title, ' +
+              '.merge-request-details .title, ' +
+              '[data-testid="title-content"], ' +
+              '.page-title, ' +
+              '.title-container .title, ' +
+              '.issue-title-text, ' +
+              'h2.gl-font-size-h-display, ' +
+              '.merge-request .detail-page-header-body'
+            );
+            const fromTitle = firstMatch(titleEl?.textContent?.trim());
+            if (fromTitle) return fromTitle;
+
+            // 2) Overview / description (MR body)
+            const descEl = document.querySelector(
+              '.description .md, ' +
+              '.description-holder .md, ' +
+              '[data-testid="description-content"] .md, ' +
+              '.js-task-list-container .md, ' +
+              '.merge-request-description .md, ' +
+              '.detail-page-description .md, ' +
+              '#content-body .description'
+            );
+            const fromDesc = firstMatch(descEl?.textContent?.trim());
+            if (fromDesc) return fromDesc;
+
+            // 3) Source branch name
+            const branchEl = document.querySelector(
+              '.ref-container .ref-name, [data-testid="ref-name"], .js-source-branch'
+            );
+            const fromBranch = firstMatch(branchEl?.textContent?.trim());
+            if (fromBranch) return fromBranch;
+
+            // 4) Any ticket-like id in header + overview region
+            const scope = document.querySelector('.merge-request, #content-body, main') || document.body;
+            const matches = scope.innerText.match(globalPattern);
+            return matches && matches.length ? matches[0] : null;
+          },
+          args: [rawPattern]
+        });
+        if (ticketId) {
+          messageInput.value = ticketId;
         }
       }
     } catch (_) {}

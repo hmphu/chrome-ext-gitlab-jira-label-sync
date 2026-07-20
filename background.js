@@ -42,6 +42,41 @@ chrome.runtime.onInstalled.addListener(() => {
     contexts: ['page'],
     documentUrlPatterns: ['https://*.atlassian.net/browse/*']
   });
+  chrome.contextMenus.create({
+    id: 'createMRTo',
+    title: 'Create MR to',
+    contexts: ['page', 'link'],
+    documentUrlPatterns: ['https://*/*/-/tree/*', 'https://*/*/-/branches*', 'https://*/*/-/commits/*', 'https://*/*/-/merge_requests/*']
+  });
+  chrome.contextMenus.create({
+    id: 'createMRToMain',
+    parentId: 'createMRTo',
+    title: 'main',
+    contexts: ['page', 'link']
+  });
+  chrome.contextMenus.create({
+    id: 'createMRToRelease',
+    parentId: 'createMRTo',
+    title: 'release',
+    contexts: ['page', 'link']
+  });
+  chrome.contextMenus.create({
+    id: 'createMRToTesting',
+    parentId: 'createMRTo',
+    title: 'testing',
+    contexts: ['page', 'link']
+  });
+});
+
+chrome.tabs.onUpdated.addListener(async (tabId, changeInfo, tab) => {
+  if (changeInfo.status !== 'complete' || !tab.url) return;
+  const settings = await getSettings();
+  const baseUrl = settings.gitlabBaseUrl?.replace(/\/$/, '');
+  if (!baseUrl || !tab.url.startsWith(baseUrl)) return;
+  chrome.scripting.executeScript({
+    target: { tabId },
+    files: ['content-sidebar.js']
+  }).catch(() => {});
 });
 
 chrome.contextMenus.onClicked.addListener((info, tab) => {
@@ -69,6 +104,69 @@ chrome.contextMenus.onClicked.addListener((info, tab) => {
       syncStarted = true;
       runSync({ mrs: response.mrs, projectPath: response.projectPath });
     });
+    return;
+  }
+
+  if (info.menuItemId === 'createMRToMain' || info.menuItemId === 'createMRToRelease' || info.menuItemId === 'createMRToTesting') {
+    const pageUrl = info.pageUrl || (tab && tab.url) || '';
+    const linkUrl = info.linkUrl || '';
+
+    const projectMatch = pageUrl.match(/https?:\/\/[^/]+\/(.+?)\/-\//);
+    const projectPath = projectMatch ? projectMatch[1] : null;
+
+    const treeLinkMatch = linkUrl.match(/\/-\/tree\/(.+?)(?:\?|#|$)/);
+    let sourceBranch = treeLinkMatch ? decodeURIComponent(treeLinkMatch[1]) : null;
+    if (!sourceBranch) {
+      const pageTreeMatch = pageUrl.match(/\/-\/tree\/(.+?)(?:\?|#|$)/);
+      if (pageTreeMatch) sourceBranch = decodeURIComponent(pageTreeMatch[1]);
+    }
+
+    if (!sourceBranch || !projectPath) {
+      chrome.notifications.create({
+        type: 'basic',
+        iconUrl: 'icons/icon48.png',
+        title: 'GitLab Toolbox',
+        message: 'Could not determine branch or project. Right-click a branch link on a GitLab page.'
+      });
+      return;
+    }
+
+    const host = pageUrl.match(/https?:\/\/([^/]+)/)[1];
+
+    if (info.menuItemId === 'createMRToMain' || info.menuItemId === 'createMRToTesting') {
+      const target = info.menuItemId === 'createMRToMain' ? 'main' : 'testing';
+      const mrUrl = `https://${host}/${projectPath}/-/merge_requests/new?merge_request[source_branch]=${encodeURIComponent(sourceBranch)}&merge_request[target_branch]=${encodeURIComponent(target)}`;
+      chrome.tabs.create({ url: mrUrl, active: true });
+      return;
+    }
+
+    (async () => {
+      const settings = await getSettings();
+      if (!settings.gitlabToken || !settings.gitlabBaseUrl) {
+        chrome.notifications.create({
+          type: 'basic',
+          iconUrl: 'icons/icon48.png',
+          title: 'GitLab Toolbox',
+          message: 'Please configure GitLab credentials in Settings.'
+        });
+        return;
+      }
+      try {
+        const encoded = encodeURIComponent(projectPath);
+        const res = await gitlabFetch(settings, `projects/${encoded}`);
+        const project = await res.json();
+        const releaseBranch = project.default_branch || 'main';
+        const mrUrl = `https://${host}/${projectPath}/-/merge_requests/new?merge_request[source_branch]=${encodeURIComponent(sourceBranch)}&merge_request[target_branch]=${encodeURIComponent(releaseBranch)}`;
+        chrome.tabs.create({ url: mrUrl, active: true });
+      } catch (e) {
+        chrome.notifications.create({
+          type: 'basic',
+          iconUrl: 'icons/icon48.png',
+          title: 'GitLab Toolbox',
+          message: `Failed: ${e.message}`
+        });
+      }
+    })();
     return;
   }
 
@@ -185,9 +283,229 @@ async function gitlabFetch(settings, path, options = {}) {
       ...options.headers
     }
   });
-  if (!response.ok) throw new Error(`GitLab API error: ${response.status} ${response.statusText}`);
+  if (!response.ok) {
+    let detail = response.statusText;
+    try {
+      const body = await response.text();
+      if (body) detail = body.length > 300 ? body.slice(0, 300) + '…' : body;
+    } catch (_) {}
+    throw new Error(`GitLab API error: ${response.status} ${detail}`);
+  }
   if (response.status === 204) return null;
   return response.json();
+}
+
+const PUSH_ACCESS_NONE = 0;
+const PUSH_ACCESS_MAINTAINER = 40;
+
+async function resolveProtectBranchName(settings, projectPath, branchKey) {
+  const encoded = encodeURIComponent(projectPath);
+  if (branchKey === 'main' || branchKey === 'testing') return branchKey;
+  if (branchKey === 'release') {
+    const project = await gitlabFetch(settings, `projects/${encoded}`);
+    return project.default_branch || 'main';
+  }
+  return branchKey;
+}
+
+function isRolePushLevel(level) {
+  if (!level) return false;
+  return level.user_id == null && level.group_id == null && level.deploy_key_id == null;
+}
+
+function findRolePushLevels(protectedBranch) {
+  if (!protectedBranch || !Array.isArray(protectedBranch.push_access_levels)) return [];
+  return protectedBranch.push_access_levels.filter(isRolePushLevel);
+}
+
+function findRolePushLevel(protectedBranch) {
+  const levels = findRolePushLevels(protectedBranch);
+  if (!levels.length) return null;
+  // Prefer explicit role levels; if multiple, pick the most permissive for status display
+  return levels.slice().sort((a, b) => (b.access_level || 0) - (a.access_level || 0))[0];
+}
+
+function maintainersCanPush(protectedBranch) {
+  return findRolePushLevels(protectedBranch).some(l =>
+    l.access_level === PUSH_ACCESS_MAINTAINER || l.access_level === 30
+  );
+}
+
+function statusFromProtectedBranch(branchName, pb) {
+  const level = findRolePushLevel(pb);
+  return {
+    branch: branchName,
+    protected: true,
+    allowPush: maintainersCanPush(pb),
+    accessLevel: level ? level.access_level : null,
+    accessLevelId: level ? level.id : null,
+    protectName: pb.name || branchName
+  };
+}
+
+async function fetchProtectedBranch(settings, projectPath, branchName) {
+  const encoded = encodeURIComponent(projectPath);
+  try {
+    return await gitlabFetch(settings, `projects/${encoded}/protected_branches/${encodeURIComponent(branchName)}`);
+  } catch (e) {
+    if (!String(e.message).includes('404')) throw e;
+  }
+
+  // Fallback: list and match exact name or covering wildcard (e.g. releases/*)
+  const list = await gitlabFetch(settings, `projects/${encoded}/protected_branches?per_page=100`);
+  const exact = list.find(p => p.name === branchName);
+  if (exact) return exact;
+
+  const wildcard = list.find(p => {
+    if (!p.name || !p.name.includes('*')) return false;
+    const re = new RegExp('^' + p.name.split('*').map(s => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('.*') + '$');
+    return re.test(branchName);
+  });
+  return wildcard || null;
+}
+
+async function getProtectedPushStatus(settings, projectPath, branchKey) {
+  const branchName = await resolveProtectBranchName(settings, projectPath, branchKey);
+  const pb = await fetchProtectedBranch(settings, projectPath, branchName);
+  if (!pb) {
+    return { branch: branchName, protected: false, allowPush: false, accessLevel: null, accessLevelId: null, protectName: null };
+  }
+  return statusFromProtectedBranch(branchName, pb);
+}
+
+function getRoleMergeAccessLevel(protectedBranch) {
+  const levels = (protectedBranch && protectedBranch.merge_access_levels) || [];
+  const role = levels.find(l => l.user_id == null && l.group_id == null && l.access_level != null);
+  return role ? role.access_level : PUSH_ACCESS_MAINTAINER;
+}
+
+async function createProtectedBranchWithPush(settings, projectPath, branchName, pushLevel, mergeLevel, extras = {}) {
+  const encoded = encodeURIComponent(projectPath);
+  const body = {
+    name: branchName,
+    push_access_level: pushLevel,
+    merge_access_level: mergeLevel
+  };
+  if (typeof extras.allow_force_push === 'boolean') body.allow_force_push = extras.allow_force_push;
+  if (typeof extras.code_owner_approval_required === 'boolean') {
+    body.code_owner_approval_required = extras.code_owner_approval_required;
+  }
+  return gitlabFetch(settings, `projects/${encoded}/protected_branches`, {
+    method: 'POST',
+    body: JSON.stringify(body)
+  });
+}
+
+async function deleteProtectedBranch(settings, projectPath, protectName) {
+  const encoded = encodeURIComponent(projectPath);
+  return gitlabFetch(settings, `projects/${encoded}/protected_branches/${encodeURIComponent(protectName)}`, {
+    method: 'DELETE'
+  });
+}
+
+async function setProtectedPushAccess(settings, projectPath, branchKey, allow) {
+  const encoded = encodeURIComponent(projectPath);
+  const branchName = await resolveProtectBranchName(settings, projectPath, branchKey);
+  const targetLevel = allow ? PUSH_ACCESS_MAINTAINER : PUSH_ACCESS_NONE;
+  const allowFlag = !!allow;
+
+  let pb = await fetchProtectedBranch(settings, projectPath, branchName);
+
+  if (pb && pb.inherited) {
+    throw new Error(
+      `Protection for "${pb.name}" is inherited from a parent group and cannot be changed at project level.`
+    );
+  }
+
+  if (!pb) {
+    pb = await createProtectedBranchWithPush(
+      settings, projectPath, branchName, targetLevel, PUSH_ACCESS_MAINTAINER
+    );
+  } else {
+    const protectName = pb.name || branchName;
+    const mergeLevel = getRoleMergeAccessLevel(pb);
+    const extras = {
+      allow_force_push: pb.allow_force_push,
+      code_owner_approval_required: pb.code_owner_approval_required
+    };
+
+    // Strategy 1: PATCH existing role push level by id (preferred, keeps other rules)
+    const roleLevel = findRolePushLevel(pb);
+    let patchOk = false;
+    if (roleLevel && roleLevel.id != null) {
+      try {
+        pb = await gitlabFetch(settings, `projects/${encoded}/protected_branches/${encodeURIComponent(protectName)}`, {
+          method: 'PATCH',
+          body: JSON.stringify({
+            allowed_to_push: [{ id: roleLevel.id, access_level: targetLevel }]
+          })
+        });
+        patchOk = maintainersCanPush(pb) === allowFlag
+          || (findRolePushLevel(pb) && findRolePushLevel(pb).access_level === targetLevel);
+      } catch (_) {
+        patchOk = false;
+      }
+    }
+
+    // Strategy 2: destroy all role push rules + add target
+    if (!patchOk) {
+      try {
+        const roleLevels = findRolePushLevels(pb);
+        const allowed_to_push = roleLevels
+          .filter(l => l.id != null)
+          .map(l => ({ id: l.id, _destroy: true }));
+        allowed_to_push.push({ access_level: targetLevel });
+        pb = await gitlabFetch(settings, `projects/${encoded}/protected_branches/${encodeURIComponent(protectName)}`, {
+          method: 'PATCH',
+          body: JSON.stringify({ allowed_to_push })
+        });
+        patchOk = maintainersCanPush(pb) === allowFlag
+          || (findRolePushLevel(pb) && findRolePushLevel(pb).access_level === targetLevel);
+      } catch (_) {
+        patchOk = false;
+      }
+    }
+
+    // Strategy 3 (most reliable on Free): unprotect + re-protect with push_access_level
+    // Only for exact branch name rules (never delete a wildcard that covers other branches)
+    if (!patchOk) {
+      if (protectName !== branchName) {
+        throw new Error(
+          `Could not update push access via API for rule "${protectName}" covering "${branchName}". ` +
+          `Wildcard/group rules may need to be changed in GitLab UI.`
+        );
+      }
+      await deleteProtectedBranch(settings, projectPath, protectName);
+      pb = await createProtectedBranchWithPush(
+        settings, projectPath, branchName, targetLevel, mergeLevel, extras
+      );
+    }
+  }
+
+  const verified = await fetchProtectedBranch(settings, projectPath, branchName);
+  const status = verified
+    ? statusFromProtectedBranch(branchName, verified)
+    : statusFromProtectedBranch(branchName, pb);
+
+  const applied =
+    status.allowPush === allowFlag ||
+    status.accessLevel === targetLevel ||
+    (!allowFlag && (status.accessLevel === 0 || status.accessLevel === null));
+
+  if (!applied) {
+    throw new Error(
+      `GitLab did not apply push change for ${status.protectName || branchName} ` +
+      `(access_level=${status.accessLevel}, allowPush=${status.allowPush}). ` +
+      `Token needs Maintainer+ and api scope.`
+    );
+  }
+
+  return {
+    ...status,
+    message: allowFlag
+      ? `Maintainers can now push to ${status.protectName || branchName}.`
+      : `Push disabled for ${status.protectName || branchName} (No one).`
+  };
 }
 
 async function getJiraLabels(settings, ticketId) {
@@ -1087,6 +1405,105 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
             assignee: parent.fields.assignee?.displayName || null
           };
         }
+        sendResponse(result);
+      } catch (e) {
+        sendResponse({ error: e.message });
+      }
+    })();
+    return true;
+  }
+
+  if (request.action === 'sidebarSyncLabels') {
+    const tabId = sender.tab?.id;
+    if (!tabId) return;
+    chrome.tabs.sendMessage(tabId, { action: 'extractMRs' }, (response) => {
+      if (!response || !response.mrs || !response.mrs.length || !response.projectPath) {
+        chrome.tabs.sendMessage(tabId, { action: 'sidebarSyncError', message: 'Navigate to a merge requests page first.' });
+        return;
+      }
+      syncState = { running: false, progress: [], results: [], total: 0, completed: 0, error: null };
+      queue = [];
+      seen = new Set();
+      syncStarted = true;
+      runSync({ mrs: response.mrs, projectPath: response.projectPath });
+    });
+    return true;
+  }
+
+  if (request.action === 'sidebarFixBrokenMRs') {
+    const tabId = sender.tab?.id;
+    (async () => {
+      const settings = await getSettings();
+      if (!settings.gitlabToken || !settings.gitlabBaseUrl) {
+        if (tabId) chrome.tabs.sendMessage(tabId, { action: 'sidebarFixResult', html: '<p>Please configure GitLab credentials in Settings.</p>' });
+        return;
+      }
+      const { projectPath } = request;
+      const encoded = encodeURIComponent(projectPath);
+      try {
+        const project = await gitlabFetch(settings, `projects/${encoded}`);
+        const defaultBranch = project.default_branch;
+        const branches = await gitlabFetch(settings, `projects/${encoded}/repository/branches?per_page=100`);
+        const branchNames = new Set(branches.map(b => b.name));
+        let page = 1;
+        let allOpenMRs = [];
+        while (true) {
+          const mrs = await gitlabFetch(settings, `projects/${encoded}/merge_requests?state=opened&per_page=100&page=${page}`);
+          if (!mrs.length) break;
+          allOpenMRs = allOpenMRs.concat(mrs);
+          if (mrs.length < 100) break;
+          page++;
+        }
+        const broken = allOpenMRs.filter(mr => !branchNames.has(mr.target_branch) && /^releases\//.test(mr.target_branch));
+        if (broken.length === 0) {
+          if (tabId) chrome.tabs.sendMessage(tabId, { action: 'sidebarFixResult', html: '<p>No broken MRs found.</p>' });
+          return;
+        }
+        let fixed = 0;
+        const errors = [];
+        for (const mr of broken) {
+          try {
+            await gitlabFetch(settings, `projects/${encoded}/merge_requests/${mr.iid}`, {
+              method: 'PUT', body: JSON.stringify({ target_branch: defaultBranch })
+            });
+            fixed++;
+          } catch (e) {
+            errors.push(`!${mr.iid}: ${e.message}`);
+          }
+        }
+        const html = `<p>Fixed <b>${fixed}/${broken.length}</b> MR(s) → <code>${defaultBranch}</code></p>` +
+          (errors.length ? `<p class="gl-toolbox-error" style="color:#cf222e;font-size:12px">${errors.join('<br>')}</p>` : '');
+        if (tabId) chrome.tabs.sendMessage(tabId, { action: 'sidebarFixResult', html });
+      } catch (e) {
+        if (tabId) chrome.tabs.sendMessage(tabId, { action: 'sidebarFixResult', html: `<p>Failed: ${e.message}</p>` });
+      }
+    })();
+    return true;
+  }
+
+  if (request.action === 'sidebarBulkTags') {
+    chrome.action.openPopup();
+    return false;
+  }
+
+  if (request.action === 'getProtectedPushStatus' || request.action === 'setProtectedPushAccess') {
+    (async () => {
+      const settings = await getSettings();
+      if (!settings.gitlabToken || !settings.gitlabBaseUrl) {
+        sendResponse({ error: 'Please configure GitLab credentials in Settings.' });
+        return;
+      }
+
+      const { projectPath, branch } = request;
+      if (!projectPath || !branch) {
+        sendResponse({ error: 'Missing project or branch.' });
+        return;
+      }
+
+      try {
+        const result = request.action === 'getProtectedPushStatus'
+          ? await getProtectedPushStatus(settings, projectPath, branch)
+          : await setProtectedPushAccess(settings, projectPath, branch, request.allow);
         sendResponse(result);
       } catch (e) {
         sendResponse({ error: e.message });

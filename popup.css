@@ -557,11 +557,27 @@ textarea:focus {
   font-family: 'SFMono-Regular', Consolas, monospace;
 }
 
+.recent-services-details {
+  margin-bottom: 6px;
+}
+
+.recent-services-details:has(.recent-services-list:empty) {
+  display: none;
+}
+
+.recent-services-summary {
+  font-size: 11px;
+  color: #666;
+  cursor: pointer;
+  user-select: none;
+  margin-bottom: 4px;
+}
+
 .recent-services-list {
   display: flex;
   flex-wrap: wrap;
   gap: 4px;
-  margin-bottom: 6px;
+  margin-top: 4px;
 }
 
 .recent-services-list:empty {
