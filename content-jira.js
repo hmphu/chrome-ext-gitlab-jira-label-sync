@@ -469,8 +469,7 @@
 
   function destroyPanel(panel) {
     if (panel) {
-      if (panel._sidebarObserver) panel._sidebarObserver.disconnect();
-      if (panel._fallbackTimer) clearTimeout(panel._fallbackTimer);
+      if (panel._fallbackTimer) clearInterval(panel._fallbackTimer);
       panel.remove();
     }
   }
@@ -575,12 +574,22 @@
       if (sendBtn) sendBtn.style.display = settings.showSendToTeams ? '' : 'none';
     });
 
-    function tryAnchorPanel(panel) {
-      if (!panel || !panel.parentElement) return false;
+    function clearFloatingStyles(el) {
+      el.style.position = '';
+      el.style.top = '';
+      el.style.right = '';
+      el.style.width = '';
+      el.style.zIndex = '';
+      el.style.boxShadow = '';
+    }
+
+    function tryAnchorPanel(el) {
+      if (!el) return false;
 
       const target = document.querySelector('#issue\\.views\\.issue-details\\.issue-layout\\.container-right > div > div:nth-child(2) > div:nth-child(3)');
-      if (target) {
-        target.parentElement.insertBefore(panel, target);
+      if (target && target.parentElement) {
+        target.parentElement.insertBefore(el, target);
+        clearFloatingStyles(el);
         return 'anchored-to-target';
       }
 
@@ -588,7 +597,8 @@
         || document.querySelector('[role="complementary"]')
         || document.querySelector('aside');
       if (sidebar) {
-        sidebar.prepend(panel);
+        sidebar.prepend(el);
+        clearFloatingStyles(el);
         return 'anchored-to-sidebar';
       }
 
@@ -598,6 +608,7 @@
     const anchorResult = tryAnchorPanel(panel);
     if (anchorResult) return panel;
 
+    // Sidebar not ready yet — temporary float, then re-try until sidebar mounts
     panel.style.position = 'fixed';
     panel.style.top = '80px';
     panel.style.right = '16px';
@@ -606,33 +617,20 @@
     panel.style.boxShadow = '0 2px 8px rgba(0,0,0,0.15)';
     document.body.appendChild(panel);
 
-    let retries = 0;
-    const MAX_RETRIES = 30;
-    const sidebarObserver = new MutationObserver(() => {
-      retries++;
-      const result = tryAnchorPanel(panel);
-      if (result) {
-        sidebarObserver.disconnect();
-        clearTimeout(fallbackTimer);
-        panel.style.position = '';
-        panel.style.top = '';
-        panel.style.right = '';
-        panel.style.width = '';
-        panel.style.zIndex = '';
-        panel.style.boxShadow = '';
-      } else if (retries >= MAX_RETRIES) {
-        sidebarObserver.disconnect();
-        clearTimeout(fallbackTimer);
+    let attempts = 0;
+    const MAX_ATTEMPTS = 40;
+    const tryReanchor = () => {
+      if (!panel.isConnected) {
+        clearInterval(retryInterval);
+        return;
       }
-    });
-    sidebarObserver.observe(document.body, { childList: true, subtree: true });
-
-    const fallbackTimer = setTimeout(() => {
-      sidebarObserver.disconnect();
-    }, 15000);
-
-    panel._sidebarObserver = sidebarObserver;
-    panel._fallbackTimer = fallbackTimer;
+      attempts++;
+      if (tryAnchorPanel(panel) || attempts >= MAX_ATTEMPTS) {
+        clearInterval(retryInterval);
+      }
+    };
+    const retryInterval = setInterval(tryReanchor, 400);
+    panel._fallbackTimer = retryInterval;
 
     return panel;
   }
@@ -1055,11 +1053,11 @@
     if (!force && ticketId === lastTicketId) return;
     lastTicketId = ticketId;
 
-      chrome.storage.sync.get({ mrDisplayMode: 'jira' }, (settings) => {
-        if (settings.mrDisplayMode !== 'jira') {
-          destroyPanel(document.getElementById('gl-mr-panel'));
-          return;
-        }
+    chrome.storage.sync.get({ mrDisplayMode: 'jira' }, (settings) => {
+      if (settings.mrDisplayMode !== 'jira') {
+        destroyPanel(document.getElementById('gl-mr-panel'));
+        return;
+      }
 
       const panel = getOrCreatePanel();
       panel.querySelector('.gl-mr-status').textContent = `Loading MRs for ${ticketId}...`;
