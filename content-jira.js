@@ -467,6 +467,14 @@
     document.head.appendChild(style);
   }
 
+  function destroyPanel(panel) {
+    if (panel) {
+      if (panel._sidebarObserver) panel._sidebarObserver.disconnect();
+      if (panel._fallbackTimer) clearTimeout(panel._fallbackTimer);
+      panel.remove();
+    }
+  }
+
   function getOrCreatePanel() {
     let panel = document.getElementById('gl-mr-panel');
     if (panel) return panel;
@@ -567,25 +575,65 @@
       if (sendBtn) sendBtn.style.display = settings.showSendToTeams ? '' : 'none';
     });
 
-    const target = document.querySelector('#issue\\.views\\.issue-details\\.issue-layout\\.container-right > div > div:nth-child(2) > div:nth-child(3)');
-    if (target) {
-      target.parentElement.insertBefore(panel, target);
-    } else {
+    function tryAnchorPanel(panel) {
+      if (!panel || !panel.parentElement) return false;
+
+      const target = document.querySelector('#issue\\.views\\.issue-details\\.issue-layout\\.container-right > div > div:nth-child(2) > div:nth-child(3)');
+      if (target) {
+        target.parentElement.insertBefore(panel, target);
+        return 'anchored-to-target';
+      }
+
       const sidebar = document.querySelector('[data-testid="issue.views.issue-details.template-detail-view.right-side-panel"]')
         || document.querySelector('[role="complementary"]')
         || document.querySelector('aside');
       if (sidebar) {
         sidebar.prepend(panel);
-      } else {
-        panel.style.position = 'fixed';
-        panel.style.top = '80px';
-        panel.style.right = '16px';
-        panel.style.width = '280px';
-        panel.style.zIndex = '9999';
-        panel.style.boxShadow = '0 2px 8px rgba(0,0,0,0.15)';
-        document.body.appendChild(panel);
+        return 'anchored-to-sidebar';
       }
+
+      return false;
     }
+
+    const anchorResult = tryAnchorPanel(panel);
+    if (anchorResult) return panel;
+
+    panel.style.position = 'fixed';
+    panel.style.top = '80px';
+    panel.style.right = '16px';
+    panel.style.width = '280px';
+    panel.style.zIndex = '9999';
+    panel.style.boxShadow = '0 2px 8px rgba(0,0,0,0.15)';
+    document.body.appendChild(panel);
+
+    let retries = 0;
+    const MAX_RETRIES = 30;
+    const sidebarObserver = new MutationObserver(() => {
+      retries++;
+      const result = tryAnchorPanel(panel);
+      if (result) {
+        sidebarObserver.disconnect();
+        clearTimeout(fallbackTimer);
+        panel.style.position = '';
+        panel.style.top = '';
+        panel.style.right = '';
+        panel.style.width = '';
+        panel.style.zIndex = '';
+        panel.style.boxShadow = '';
+      } else if (retries >= MAX_RETRIES) {
+        sidebarObserver.disconnect();
+        clearTimeout(fallbackTimer);
+      }
+    });
+    sidebarObserver.observe(document.body, { childList: true, subtree: true });
+
+    const fallbackTimer = setTimeout(() => {
+      sidebarObserver.disconnect();
+    }, 15000);
+
+    panel._sidebarObserver = sidebarObserver;
+    panel._fallbackTimer = fallbackTimer;
+
     return panel;
   }
 
@@ -1007,12 +1055,11 @@
     if (!force && ticketId === lastTicketId) return;
     lastTicketId = ticketId;
 
-    chrome.storage.sync.get({ mrDisplayMode: 'jira' }, (settings) => {
-      if (settings.mrDisplayMode !== 'jira') {
-        const panel = document.getElementById('gl-mr-panel');
-        if (panel) panel.remove();
-        return;
-      }
+      chrome.storage.sync.get({ mrDisplayMode: 'jira' }, (settings) => {
+        if (settings.mrDisplayMode !== 'jira') {
+          destroyPanel(document.getElementById('gl-mr-panel'));
+          return;
+        }
 
       const panel = getOrCreatePanel();
       panel.querySelector('.gl-mr-status').textContent = `Loading MRs for ${ticketId}...`;
@@ -1036,8 +1083,7 @@
     if (ticketId && ticketId !== lastTicketId) {
       fetchAndRenderMRs(false);
     } else if (!ticketId) {
-      const panel = document.getElementById('gl-mr-panel');
-      if (panel) panel.remove();
+      destroyPanel(document.getElementById('gl-mr-panel'));
       lastTicketId = null;
     }
   }

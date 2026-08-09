@@ -48,21 +48,21 @@
       <div class="form-group">
         <label>Version</label>
         <div class="tag-version-row">
-          <div class="tag-version-group">
+          <div class="tag-version-group" style="flex:1.6">
             <span class="tag-version-label">Date</span>
-            <input type="text" id="tag-date" class="input-field" style="width:110px" placeholder="YYYY.MM.DD">
+            <input type="text" id="tag-date" class="input-field" placeholder="YYYY.MM.DD">
           </div>
-          <div class="tag-version-group">
+          <div class="tag-version-group" style="flex:0.7">
             <span class="tag-version-label">Prefix</span>
-            <input type="text" id="tag-patch-prefix" class="input-field" style="width:40px" value="p">
+            <input type="text" id="tag-patch-prefix" class="input-field" value="p">
           </div>
-          <div class="tag-version-group">
+          <div class="tag-version-group" style="flex:0.8">
             <span class="tag-version-label">Patch</span>
-            <input type="number" id="tag-patch" class="input-field" style="width:50px" min="1" placeholder="auto">
+            <input type="number" id="tag-patch" class="input-field" min="1" placeholder="auto">
           </div>
-          <div class="tag-version-group">
+          <div class="tag-version-group" style="flex:1">
             <span class="tag-version-label">Env</span>
-            <input type="text" id="tag-env" class="input-field" style="width:70px" value="stag">
+            <input type="text" id="tag-env" class="input-field" value="stag">
           </div>
         </div>
       </div>
@@ -88,11 +88,11 @@
 
       <div class="form-group">
         <label>🗑 Delete Old Tags</label>
-        <div style="display:flex;gap:6px;align-items:center;margin-bottom:6px">
-          <span style="font-size:11px">Older than</span>
-          <input type="number" id="delete-tags-days" class="input-field" style="width:60px" min="1" value="30">
-          <span style="font-size:11px">days</span>
-          <input type="text" id="delete-tags-pattern" class="input-field" style="flex:1" placeholder="Tag pattern (e.g. v2024*)">
+        <div style="display:flex;gap:6px;align-items:center;margin-bottom:6px;max-width:100%;min-width:0">
+          <span style="font-size:11px;flex-shrink:0">Older than</span>
+          <input type="number" id="delete-tags-days" class="input-field" style="width:60px;flex-shrink:0" min="1" value="30">
+          <span style="font-size:11px;flex-shrink:0">days</span>
+          <input type="text" id="delete-tags-pattern" class="input-field" style="flex:1;min-width:0" placeholder="Tag pattern (e.g. v2024*)">
         </div>
         <div style="display:flex;gap:6px">
           <button id="search-old-tags-btn" class="btn-primary" style="flex:1;font-size:11px;padding:6px">🔍 Search Tags</button>

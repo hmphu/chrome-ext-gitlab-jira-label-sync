@@ -825,33 +825,84 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   if (request.action === 'getPageContext') {
     chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
       if (!tabs[0]) { sendResponse({ type: 'unknown' }); return; }
-      const url = tabs[0].url || '';
+      const tab = tabs[0];
+      const url = tab.url || '';
+      let responded = false;
+      const reply = (payload) => {
+        if (responded) return;
+        responded = true;
+        sendResponse(payload);
+      };
+
+      const sendTabMessage = (msg, onOk, onFail) => {
+        const timer = setTimeout(() => onFail(), 400);
+        try {
+          chrome.tabs.sendMessage(tab.id, msg, (response) => {
+            clearTimeout(timer);
+            if (chrome.runtime.lastError || !response) {
+              onFail();
+              return;
+            }
+            onOk(response);
+          });
+        } catch (_) {
+          clearTimeout(timer);
+          onFail();
+        }
+      };
+
       if (url.includes('atlassian.net')) {
-        chrome.tabs.sendMessage(tabs[0].id, { action: 'getJiraTicket' }, (response) => {
-          if (response && response.ticketId) {
-            sendResponse({ type: 'jira', ticketId: response.ticketId });
-          } else if (jiraTicketOnPage) {
-            sendResponse({ type: 'jira', ticketId: jiraTicketOnPage });
-          } else {
-            sendResponse({ type: 'unknown' });
-          }
-        });
+        const browseMatch = url.match(/\/browse\/([A-Z][A-Z0-9]+-\d+)/i);
+        const selectedMatch = url.match(/[?&]selectedIssue=([A-Z][A-Z0-9]+-\d+)/i);
+        const urlTicket = browseMatch?.[1]?.toUpperCase() || selectedMatch?.[1]?.toUpperCase() || null;
+
+        if (urlTicket) {
+          reply({ type: 'jira', ticketId: urlTicket });
+          return;
+        }
+        if (jiraTicketOnPage) {
+          reply({ type: 'jira', ticketId: jiraTicketOnPage });
+          return;
+        }
+
+        sendTabMessage(
+          { action: 'getJiraTicket' },
+          (response) => {
+            if (response && response.ticketId) reply({ type: 'jira', ticketId: response.ticketId });
+            else reply({ type: 'unknown' });
+          },
+          () => reply({ type: 'unknown' })
+        );
       } else if (url.includes('/-/epics/')) {
-        chrome.tabs.sendMessage(tabs[0].id, { action: 'getEpicInfo' }, (response) => {
-          if (response && response.groupPath && response.epicIid) {
-            sendResponse({ type: 'epic', groupPath: response.groupPath, epicIid: response.epicIid });
-          } else if (epicInfoOnPage) {
-            sendResponse({ type: 'epic', ...epicInfoOnPage });
-          } else {
-            sendResponse({ type: 'unknown' });
-          }
-        });
+        const epicMatch = url.match(/\/([^/]+(?:\/[^/]+)*)\/-\/epics\/(\d+)/);
+        if (epicInfoOnPage) {
+          reply({ type: 'epic', ...epicInfoOnPage });
+          return;
+        }
+        if (epicMatch) {
+          reply({ type: 'epic', groupPath: epicMatch[1], epicIid: epicMatch[2] });
+          return;
+        }
+
+        sendTabMessage(
+          { action: 'getEpicInfo' },
+          (response) => {
+            if (response && response.groupPath && response.epicIid) {
+              reply({ type: 'epic', groupPath: response.groupPath, epicIid: response.epicIid });
+            } else {
+              reply({ type: 'unknown' });
+            }
+          },
+          () => reply({ type: 'unknown' })
+        );
       } else if (url.includes('merge_requests')) {
-        chrome.tabs.sendMessage(tabs[0].id, { action: 'extractMRs' }, (response) => {
-          sendResponse({ type: 'gitlab', ...(response || {}) });
-        });
+        sendTabMessage(
+          { action: 'extractMRs' },
+          (response) => reply({ type: 'gitlab', ...(response || {}) }),
+          () => reply({ type: 'gitlab', mrs: [] })
+        );
       } else {
-        sendResponse({ type: 'unknown' });
+        reply({ type: 'unknown' });
       }
     });
     return true;

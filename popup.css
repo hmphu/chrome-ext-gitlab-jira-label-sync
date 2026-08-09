@@ -4,16 +4,30 @@
   box-sizing: border-box;
 }
 
+html {
+  width: 400px !important;
+  max-width: 400px !important;
+  overflow-x: hidden;
+}
+
 body {
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
   font-size: 13px;
   color: #333;
-  width: 400px;
+  width: 400px !important;
+  max-width: 400px !important;
+  min-width: 0;
   min-height: 200px;
+  overflow-x: hidden;
+  margin: 0;
 }
 
 .container {
   padding: 16px;
+  width: 100%;
+  max-width: 400px;
+  overflow-x: hidden;
+  box-sizing: border-box;
 }
 
 h1 {
@@ -60,6 +74,9 @@ h1 {
   border-radius: 4px;
   margin-bottom: 4px;
   font-size: 12px;
+  max-width: 100%;
+  min-width: 0;
+  overflow: hidden;
 }
 
 .mr-item .title {
@@ -149,6 +166,9 @@ h1 {
 
 .results {
   margin-top: 12px;
+  max-width: 100%;
+  overflow-x: hidden;
+  word-break: break-word;
 }
 
 .result-item {
@@ -191,12 +211,17 @@ h1 {
   margin-top: 14px;
   padding-top: 10px;
   border-top: 1px solid #ebebeb;
+  width: 100%;
+  max-width: 100%;
+  overflow: hidden;
 }
 
 .footer-grid {
   display: grid;
-  grid-template-columns: repeat(4, 1fr);
+  grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 5px;
+  width: 100%;
+  max-width: 100%;
 }
 
 /* row 1: four MR buttons */
@@ -213,13 +238,22 @@ h1 {
   grid-column: span 2;
 }
 
+/* Bulk Tags view: only Bulk Tags + Settings remain — fill full width, no empty columns */
+.footer-grid.tag-mode {
+  grid-template-columns: 1fr 1fr;
+}
+
+.footer-grid.tag-mode .footer-btn {
+  grid-column: auto;
+}
+
 .footer-btn {
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: 4px;
-  padding: 6px 4px;
-  font-size: 11px;
+  gap: 2px;
+  padding: 6px 2px;
+  font-size: 10px;
   font-weight: 500;
   font-family: inherit;
   color: #4a4a6a;
@@ -227,9 +261,15 @@ h1 {
   border: 1px solid #dddaf5;
   border-radius: 6px;
   cursor: pointer;
-  white-space: nowrap;
+  white-space: normal;
+  text-align: center;
+  overflow: hidden;
+  min-width: 0;
+  max-width: 100%;
+  width: 100%;
   transition: background 0.15s, border-color 0.15s, color 0.15s;
-  line-height: 1.2;
+  line-height: 1.15;
+  box-sizing: border-box;
 }
 
 .footer-btn:hover {
@@ -521,13 +561,22 @@ textarea:focus {
 .tag-version-row {
   display: flex;
   align-items: flex-end;
-  gap: 10px;
+  gap: 8px;
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
 }
 
 .tag-version-group {
   display: flex;
   flex-direction: column;
   gap: 3px;
+  flex: 1;
+  min-width: 0;
+}
+
+.tag-version-group .input-field {
+  width: 100% !important;
 }
 
 .tag-version-label {

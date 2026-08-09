@@ -22,11 +22,17 @@ function setStatus(message, type) {
   statusEl.style.display = 'block';
 }
 
+function setFooterTagMode(enabled) {
+  const footerGrid = document.querySelector('.footer-grid');
+  if (footerGrid) footerGrid.classList.toggle('tag-mode', enabled);
+}
+
 function showGitlabView() {
   gitlabView.style.display = '';
   jiraView.style.display = 'none';
   tagView.style.display = 'none';
   mrButtons.forEach(b => b && (b.style.display = ''));
+  setFooterTagMode(false);
 }
 
 function showJiraView() {
@@ -34,6 +40,7 @@ function showJiraView() {
   jiraView.style.display = '';
   tagView.style.display = 'none';
   mrButtons.forEach(b => b && (b.style.display = ''));
+  setFooterTagMode(false);
 }
 
 async function showTagView() {
@@ -42,6 +49,7 @@ async function showTagView() {
   tagView.style.display = '';
   statusEl.style.display = 'none';
   mrButtons.forEach(b => b && (b.style.display = 'none'));
+  setFooterTagMode(true);
 
   const dateInput = document.getElementById('tag-date');
   if (!dateInput.value) {
@@ -788,8 +796,13 @@ function startPolling() {
 async function initGitlab(context) {
   showGitlabView();
   document.getElementById('fix-mrs-btn').style.display = '';
+  setStatus('Loading...', 'info');
 
-  const state = await chrome.runtime.sendMessage({ action: 'getSyncState' });
+  let state = { running: false, results: [], progress: [], completed: 0, total: 0 };
+  try {
+    state = await chrome.runtime.sendMessage({ action: 'getSyncState' }) || state;
+  } catch (_) {}
+
   if (state.running) {
     setStatus(`Sync in progress... ${state.completed}/${state.total}`, 'info');
     syncBtn.disabled = true;
@@ -799,7 +812,7 @@ async function initGitlab(context) {
     return;
   }
 
-  if (state.results.length > 0 && state.progress.length > 0) {
+  if (state.results && state.results.length > 0 && state.progress && state.progress.length > 0) {
     const successCount = state.results.filter(r => r.status === 'success').length;
     setStatus(`Last sync: ${successCount}/${state.results.length} succeeded.`, 'success');
     renderProgress(state.progress);
@@ -811,7 +824,7 @@ async function initGitlab(context) {
     setStatus(`Found ${context.mrs.length} merge request(s) with Jira tickets.`, 'info');
     renderMRList(context.mrs);
   } else {
-    if (!state.results.length) {
+    if (!state.results || !state.results.length) {
       setStatus('No merge requests found on this page.', 'info');
     }
     syncBtn.disabled = true;
@@ -821,23 +834,22 @@ async function initGitlab(context) {
 async function initJira(ticketId) {
   showJiraView();
   jiraTicketEl.textContent = ticketId;
+  setStatus(`Viewing Jira ticket: ${ticketId}`, 'info');
 
   const settings = await chrome.storage.sync.get({ autoLookup: true });
-  if (settings.autoLookup) {
-    lookupBtn.disabled = true;
-    lookupBtn.textContent = 'Searching...';
-    setStatus(`Searching GitLab for ${ticketId}...`, 'info');
-    try {
-      const result = await chrome.runtime.sendMessage({ action: 'lookupMRs', ticketId });
-      renderJiraResults(result);
-    } catch (e) {
-      setStatus(`Lookup failed: ${e.message}`, 'error');
-    }
-    lookupBtn.disabled = false;
-    lookupBtn.textContent = 'Lookup Merge Requests';
-  } else {
-    setStatus(`Viewing Jira ticket: ${ticketId}`, 'info');
+  if (!settings.autoLookup) return;
+
+  lookupBtn.disabled = true;
+  lookupBtn.textContent = 'Searching...';
+  setStatus(`Searching GitLab for ${ticketId}...`, 'info');
+  try {
+    const result = await chrome.runtime.sendMessage({ action: 'lookupMRs', ticketId });
+    renderJiraResults(result);
+  } catch (e) {
+    setStatus(`Lookup failed: ${e.message}`, 'error');
   }
+  lookupBtn.disabled = false;
+  lookupBtn.textContent = 'Lookup Merge Requests';
 }
 
 function renderEpicResults(data) {
@@ -871,6 +883,7 @@ function renderEpicResults(data) {
 async function initEpic(context) {
   showJiraView();
   jiraTicketEl.textContent = `Epic #${context.epicIid}`;
+  setStatus(`Epic #${context.epicIid}`, 'info');
 
   lookupBtn.disabled = true;
   lookupBtn.textContent = 'Searching...';
@@ -891,20 +904,32 @@ async function initEpic(context) {
   lookupBtn.textContent = 'Lookup Merge Requests';
 }
 
-async function init() {
-  try {
-    const context = await chrome.runtime.sendMessage({ action: 'getPageContext' });
+function withTimeout(promise, ms, fallback) {
+  return Promise.race([
+    promise,
+    new Promise((resolve) => setTimeout(() => resolve(fallback), ms))
+  ]);
+}
 
-    if (context.type === 'jira') {
-      await initJira(context.ticketId);
-    } else if (context.type === 'epic') {
-      await initEpic(context);
-    } else if (context.type === 'gitlab') {
-      await initGitlab(context);
-    } else {
+async function init() {
+  showGitlabView();
+  setStatus('Loading...', 'info');
+  syncBtn.disabled = true;
+
+  try {
+    const context = await withTimeout(
+      chrome.runtime.sendMessage({ action: 'getPageContext' }),
+      800,
+      { type: 'unknown' }
+    );
+
+    if (!context || context.type === 'unknown') {
       showGitlabView();
-      const state = await chrome.runtime.sendMessage({ action: 'getSyncState' });
-      if (state.results.length > 0 && state.progress.length > 0) {
+      let state = null;
+      try {
+        state = await withTimeout(chrome.runtime.sendMessage({ action: 'getSyncState' }), 500, null);
+      } catch (_) {}
+      if (state && state.results && state.results.length > 0 && state.progress && state.progress.length > 0) {
         const successCount = state.results.filter(r => r.status === 'success').length;
         setStatus(`Last sync: ${successCount}/${state.results.length} succeeded.`, 'success');
         renderProgress(state.progress);
@@ -913,6 +938,16 @@ async function init() {
         setStatus('Navigate to a GitLab MR page or Jira ticket to use this extension.', 'info');
       }
       syncBtn.disabled = true;
+      return;
+    }
+
+    if (context.type === 'jira') {
+      // Paint Jira UI immediately; lookup continues without blocking open
+      initJira(context.ticketId);
+    } else if (context.type === 'epic') {
+      initEpic(context);
+    } else if (context.type === 'gitlab') {
+      await initGitlab(context);
     }
   } catch (e) {
     setStatus('Could not read page. Try refreshing.', 'error');
