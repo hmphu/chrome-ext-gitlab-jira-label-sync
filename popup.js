@@ -60,38 +60,8 @@ async function showTagView() {
     dateInput.value = `${yyyy}.${mm}.${dd}`;
   }
 
-  const prefixInput = document.getElementById('tag-patch-prefix');
-  if (prefixInput.value === 'p') {
-    const { defaultPatchPrefix } = await chrome.storage.sync.get({ defaultPatchPrefix: 'p' });
-    prefixInput.value = defaultPatchPrefix;
-  }
-
   const branchRadios = document.querySelectorAll('input[name="tag-source-branch"]');
   const branchOtherInput = document.getElementById('tag-source-branch-other');
-  storedReleaseBranch = 'main';
-  let projectPath = null;
-
-  try {
-    const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-    if (tab && tab.url) {
-      const projectMatch = tab.url.match(/https?:\/\/([^/]+)\/(.+?)\/-\//);
-      const rootMatch = !projectMatch && tab.url.match(/https?:\/\/([^/]+)\/(.+?)(?:\?|#|$)/);
-      projectPath = projectMatch ? projectMatch[2] : (rootMatch ? rootMatch[2].replace(/\/$/, '') : null);
-      if (projectPath) {
-        const settings = await chrome.storage.sync.get({ gitlabToken: '', gitlabBaseUrl: '' });
-        if (settings.gitlabToken && settings.gitlabBaseUrl) {
-          const encoded = encodeURIComponent(projectPath);
-          const res = await fetch(`${settings.gitlabBaseUrl.replace(/\/$/, '')}/api/v4/projects/${encoded}`, {
-            headers: { 'PRIVATE-TOKEN': settings.gitlabToken }
-          });
-          if (res.ok) {
-            const project = await res.json();
-            storedReleaseBranch = project.default_branch || 'main';
-          }
-        }
-      }
-    }
-  } catch (_) {}
 
   function handleBranchChange() {
     const selected = document.querySelector('input[name="tag-source-branch"]:checked');
@@ -110,10 +80,7 @@ async function showTagView() {
   branchOtherInput.addEventListener('input', renderTagPreview);
   handleBranchChange();
 
-  await autoFetchPatch(projectPath);
-  renderTagPreview();
-
-  // Load recent services
+  // Load recent services (non-blocking)
   const recentServicesContainer = document.getElementById('tag-recent-services');
   chrome.storage.local.get({ recentServices: [] }, (data) => {
     recentServicesContainer.innerHTML = '';
@@ -134,12 +101,48 @@ async function showTagView() {
     });
   });
 
-  // Pre-fill tag message with Jira ticket ID from MR title or Overview
-  const messageInput = document.getElementById('tag-message');
-  if (!messageInput.value) {
-    try {
-      const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-      if (tab && tab.url && /\/-\/merge_requests\/\d+/.test(tab.url)) {
+  renderTagPreview();
+
+  // Async operations that don't block UI
+  Promise.all([
+    chrome.storage.sync.get({ defaultPatchPrefix: 'p' }),
+    chrome.tabs.query({ active: true, currentWindow: true })
+  ]).then(async ([{ defaultPatchPrefix }, [tab]]) => {
+    const prefixInput = document.getElementById('tag-patch-prefix');
+    if (prefixInput.value === 'p') {
+      prefixInput.value = defaultPatchPrefix;
+    }
+
+    let projectPath = null;
+    if (tab && tab.url) {
+      const projectMatch = tab.url.match(/https?:\/\/([^/]+)\/(.+?)\/-\//);
+      const rootMatch = !projectMatch && tab.url.match(/https?:\/\/([^/]+)\/(.+?)(?:\?|#|$)/);
+      projectPath = projectMatch ? projectMatch[2] : (rootMatch ? rootMatch[2].replace(/\/$/, '') : null);
+      
+      if (projectPath) {
+        const settings = await chrome.storage.sync.get({ gitlabToken: '', gitlabBaseUrl: '' });
+        if (settings.gitlabToken && settings.gitlabBaseUrl) {
+          try {
+            const encoded = encodeURIComponent(projectPath);
+            const res = await fetch(`${settings.gitlabBaseUrl.replace(/\/$/, '')}/api/v4/projects/${encoded}`, {
+              headers: { 'PRIVATE-TOKEN': settings.gitlabToken }
+            });
+            if (res.ok) {
+              const project = await res.json();
+              storedReleaseBranch = project.default_branch || 'main';
+            }
+          } catch (_) {}
+        }
+      }
+
+      await autoFetchPatch(projectPath);
+      renderTagPreview();
+    }
+
+    // Pre-fill tag message (non-blocking)
+    const messageInput = document.getElementById('tag-message');
+    if (!messageInput.value && tab && tab.url && /\/-\/merge_requests\/\d+/.test(tab.url)) {
+      try {
         const { jiraPattern, jiraTicketPattern } = await chrome.storage.sync.get({
           jiraPattern: '[A-Z][A-Z0-9]+-\\d+',
           jiraTicketPattern: ''
@@ -158,7 +161,6 @@ async function showTagView() {
               return m ? m[0] : null;
             }
 
-            // 1) MR title
             const titleEl = document.querySelector(
               '.detail-page-header .title, ' +
               '.merge-request-details .title, ' +
@@ -172,7 +174,6 @@ async function showTagView() {
             const fromTitle = firstMatch(titleEl?.textContent?.trim());
             if (fromTitle) return fromTitle;
 
-            // 2) Overview / description (MR body)
             const descEl = document.querySelector(
               '.description .md, ' +
               '.description-holder .md, ' +
@@ -185,14 +186,12 @@ async function showTagView() {
             const fromDesc = firstMatch(descEl?.textContent?.trim());
             if (fromDesc) return fromDesc;
 
-            // 3) Source branch name
             const branchEl = document.querySelector(
               '.ref-container .ref-name, [data-testid="ref-name"], .js-source-branch'
             );
             const fromBranch = firstMatch(branchEl?.textContent?.trim());
             if (fromBranch) return fromBranch;
 
-            // 4) Any ticket-like id in header + overview region
             const scope = document.querySelector('.merge-request, #content-body, main') || document.body;
             const matches = scope.innerText.match(globalPattern);
             return matches && matches.length ? matches[0] : null;
@@ -202,9 +201,9 @@ async function showTagView() {
         if (ticketId) {
           messageInput.value = ticketId;
         }
-      }
-    } catch (_) {}
-  }
+      } catch (_) {}
+    }
+  }).catch(() => {});
 }
 
 function getSelectedBranch() {
@@ -796,39 +795,37 @@ function startPolling() {
 async function initGitlab(context) {
   showGitlabView();
   document.getElementById('fix-mrs-btn').style.display = '';
-  setStatus('Loading...', 'info');
 
-  let state = { running: false, results: [], progress: [], completed: 0, total: 0 };
-  try {
-    state = await chrome.runtime.sendMessage({ action: 'getSyncState' }) || state;
-  } catch (_) {}
-
-  if (state.running) {
-    setStatus(`Sync in progress... ${state.completed}/${state.total}`, 'info');
-    syncBtn.disabled = true;
-    syncBtn.textContent = `Syncing ${state.completed}/${state.total}...`;
-    renderProgress(state.progress);
-    startPolling();
-    return;
-  }
-
-  if (state.results && state.results.length > 0 && state.progress && state.progress.length > 0) {
-    const successCount = state.results.filter(r => r.status === 'success').length;
-    setStatus(`Last sync: ${successCount}/${state.results.length} succeeded.`, 'success');
-    renderProgress(state.progress);
-    renderResults(state.results);
-  }
-
-  if (context && context.mrs && context.mrs.length > 0) {
-    extractedData = context;
-    setStatus(`Found ${context.mrs.length} merge request(s) with Jira tickets.`, 'info');
-    renderMRList(context.mrs);
-  } else {
-    if (!state.results || !state.results.length) {
-      setStatus('No merge requests found on this page.', 'info');
+  chrome.runtime.sendMessage({ action: 'getSyncState' }).then(state => {
+    if (state && state.running) {
+      setStatus(`Sync in progress... ${state.completed}/${state.total}`, 'info');
+      syncBtn.disabled = true;
+      syncBtn.textContent = `Syncing ${state.completed}/${state.total}...`;
+      renderProgress(state.progress);
+      startPolling();
+      return;
     }
-    syncBtn.disabled = true;
-  }
+
+    if (state && state.results && state.results.length > 0 && state.progress && state.progress.length > 0) {
+      const successCount = state.results.filter(r => r.status === 'success').length;
+      setStatus(`Last sync: ${successCount}/${state.results.length} succeeded.`, 'success');
+      renderProgress(state.progress);
+      renderResults(state.results);
+    }
+
+    if (context && context.mrs && context.mrs.length > 0) {
+      extractedData = context;
+      setStatus(`Found ${context.mrs.length} merge request(s) with Jira tickets.`, 'info');
+      renderMRList(context.mrs);
+    } else {
+      if (!state || !state.results || !state.results.length) {
+        setStatus('No merge requests found on this page.', 'info');
+      }
+      syncBtn.disabled = true;
+    }
+  }).catch(() => {
+    setStatus('Loading...', 'info');
+  });
 }
 
 async function initJira(ticketId) {
@@ -913,46 +910,36 @@ function withTimeout(promise, ms, fallback) {
 
 async function init() {
   showGitlabView();
-  setStatus('Loading...', 'info');
   syncBtn.disabled = true;
 
-  try {
-    const context = await withTimeout(
-      chrome.runtime.sendMessage({ action: 'getPageContext' }),
-      800,
-      { type: 'unknown' }
-    );
-
+  // Non-blocking context fetch
+  chrome.runtime.sendMessage({ action: 'getPageContext' }).then(context => {
     if (!context || context.type === 'unknown') {
-      showGitlabView();
-      let state = null;
-      try {
-        state = await withTimeout(chrome.runtime.sendMessage({ action: 'getSyncState' }), 500, null);
-      } catch (_) {}
-      if (state && state.results && state.results.length > 0 && state.progress && state.progress.length > 0) {
-        const successCount = state.results.filter(r => r.status === 'success').length;
-        setStatus(`Last sync: ${successCount}/${state.results.length} succeeded.`, 'success');
-        renderProgress(state.progress);
-        renderResults(state.results);
-      } else {
+      chrome.runtime.sendMessage({ action: 'getSyncState' }).then(state => {
+        if (state && state.results && state.results.length > 0 && state.progress && state.progress.length > 0) {
+          const successCount = state.results.filter(r => r.status === 'success').length;
+          setStatus(`Last sync: ${successCount}/${state.results.length} succeeded.`, 'success');
+          renderProgress(state.progress);
+          renderResults(state.results);
+        } else {
+          setStatus('Navigate to a GitLab MR page or Jira ticket to use this extension.', 'info');
+        }
+      }).catch(() => {
         setStatus('Navigate to a GitLab MR page or Jira ticket to use this extension.', 'info');
-      }
-      syncBtn.disabled = true;
+      });
       return;
     }
 
     if (context.type === 'jira') {
-      // Paint Jira UI immediately; lookup continues without blocking open
       initJira(context.ticketId);
     } else if (context.type === 'epic') {
       initEpic(context);
     } else if (context.type === 'gitlab') {
-      await initGitlab(context);
+      initGitlab(context);
     }
-  } catch (e) {
+  }).catch(() => {
     setStatus('Could not read page. Try refreshing.', 'error');
-    syncBtn.disabled = true;
-  }
+  });
 }
 
 syncBtn.addEventListener('click', async () => {

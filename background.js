@@ -470,15 +470,24 @@ async function setProtectedPushAccess(settings, projectPath, branchKey, allow) {
     // Only for exact branch name rules (never delete a wildcard that covers other branches)
     if (!patchOk) {
       if (protectName !== branchName) {
-        throw new Error(
-          `Could not update push access via API for rule "${protectName}" covering "${branchName}". ` +
-          `Wildcard/group rules may need to be changed in GitLab UI.`
+        // Strategy 4: Create a specific branch rule to override the wildcard
+        try {
+          pb = await createProtectedBranchWithPush(
+            settings, projectPath, branchName, targetLevel, mergeLevel, extras
+          );
+          patchOk = true;
+        } catch (e) {
+          throw new Error(
+            `Could not create override rule for "${branchName}" (covered by "${protectName}"). ` +
+            `Error: ${e.message}. Wildcard rules may need manual change in GitLab UI.`
+          );
+        }
+      } else {
+        await deleteProtectedBranch(settings, projectPath, protectName);
+        pb = await createProtectedBranchWithPush(
+          settings, projectPath, branchName, targetLevel, mergeLevel, extras
         );
       }
-      await deleteProtectedBranch(settings, projectPath, protectName);
-      pb = await createProtectedBranchWithPush(
-        settings, projectPath, branchName, targetLevel, mergeLevel, extras
-      );
     }
   }
 
