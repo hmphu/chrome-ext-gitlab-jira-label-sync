@@ -67,6 +67,12 @@
   function autoSend() {
     const mrs = extractMergeRequests();
     const projectPath = getProjectPath();
+    // Cache for instant popup open (no service worker wake)
+    try {
+      chrome.storage.session.set({
+        pageContext: { type: 'gitlab', mrs, projectPath, url: window.location.href, ts: Date.now() }
+      });
+    } catch (_) {}
     if (mrs.length > 0 && projectPath) {
       chrome.runtime.sendMessage({ action: 'addMRs', data: { mrs, projectPath } }).catch(() => {});
     }

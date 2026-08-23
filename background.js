@@ -821,12 +821,18 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
 
   if (request.action === 'jiraPageDetected') {
     jiraTicketOnPage = request.ticketId;
+    chrome.storage.session.set({
+      pageContext: { type: 'jira', ticketId: request.ticketId, ts: Date.now() }
+    }).catch(() => {});
     sendResponse({ ok: true });
     return false;
   }
 
   if (request.action === 'epicPageDetected') {
     epicInfoOnPage = { groupPath: request.groupPath, epicIid: request.epicIid };
+    chrome.storage.session.set({
+      pageContext: { type: 'epic', ...epicInfoOnPage, ts: Date.now() }
+    }).catch(() => {});
     sendResponse({ ok: true });
     return false;
   }
@@ -907,7 +913,11 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
       } else if (url.includes('merge_requests')) {
         sendTabMessage(
           { action: 'extractMRs' },
-          (response) => reply({ type: 'gitlab', ...(response || {}) }),
+          (response) => {
+            const payload = { type: 'gitlab', ...(response || {}), ts: Date.now() };
+            chrome.storage.session.set({ pageContext: payload }).catch(() => {});
+            reply(payload);
+          },
           () => reply({ type: 'gitlab', mrs: [] })
         );
       } else {

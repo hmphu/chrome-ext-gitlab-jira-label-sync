@@ -792,9 +792,28 @@ function startPolling() {
   }, 500);
 }
 
-async function initGitlab(context) {
+function applyGitlabContext(context, state) {
+  if (context && context.mrs && context.mrs.length > 0) {
+    extractedData = context;
+    setStatus(`Found ${context.mrs.length} merge request(s) with Jira tickets.`, 'info');
+    renderMRList(context.mrs);
+    syncBtn.disabled = false;
+  } else {
+    if (!state || !state.results || !state.results.length) {
+      setStatus('No merge requests found on this page.', 'info');
+    }
+    syncBtn.disabled = true;
+  }
+}
+
+function initGitlab(context) {
   showGitlabView();
   document.getElementById('fix-mrs-btn').style.display = '';
+
+  // Paint MR list immediately if context already has data (no SW wait)
+  if (context && context.mrs && context.mrs.length > 0) {
+    applyGitlabContext(context, null);
+  }
 
   chrome.runtime.sendMessage({ action: 'getSyncState' }).then(state => {
     if (state && state.running) {
@@ -813,40 +832,38 @@ async function initGitlab(context) {
       renderResults(state.results);
     }
 
-    if (context && context.mrs && context.mrs.length > 0) {
-      extractedData = context;
-      setStatus(`Found ${context.mrs.length} merge request(s) with Jira tickets.`, 'info');
-      renderMRList(context.mrs);
-    } else {
-      if (!state || !state.results || !state.results.length) {
-        setStatus('No merge requests found on this page.', 'info');
-      }
-      syncBtn.disabled = true;
+    if (!(context && context.mrs && context.mrs.length > 0)) {
+      applyGitlabContext(context, state);
     }
   }).catch(() => {
-    setStatus('Loading...', 'info');
+    if (!(context && context.mrs && context.mrs.length > 0)) {
+      setStatus('No merge requests found on this page.', 'info');
+      syncBtn.disabled = true;
+    }
   });
 }
 
-async function initJira(ticketId) {
+function initJira(ticketId) {
   showJiraView();
   jiraTicketEl.textContent = ticketId;
   setStatus(`Viewing Jira ticket: ${ticketId}`, 'info');
 
-  const settings = await chrome.storage.sync.get({ autoLookup: true });
-  if (!settings.autoLookup) return;
+  // Lookup is deferred so popup UI paints first
+  chrome.storage.sync.get({ autoLookup: true }).then(async (settings) => {
+    if (!settings.autoLookup) return;
 
-  lookupBtn.disabled = true;
-  lookupBtn.textContent = 'Searching...';
-  setStatus(`Searching GitLab for ${ticketId}...`, 'info');
-  try {
-    const result = await chrome.runtime.sendMessage({ action: 'lookupMRs', ticketId });
-    renderJiraResults(result);
-  } catch (e) {
-    setStatus(`Lookup failed: ${e.message}`, 'error');
-  }
-  lookupBtn.disabled = false;
-  lookupBtn.textContent = 'Lookup Merge Requests';
+    lookupBtn.disabled = true;
+    lookupBtn.textContent = 'Searching...';
+    setStatus(`Searching GitLab for ${ticketId}...`, 'info');
+    try {
+      const result = await chrome.runtime.sendMessage({ action: 'lookupMRs', ticketId });
+      renderJiraResults(result);
+    } catch (e) {
+      setStatus(`Lookup failed: ${e.message}`, 'error');
+    }
+    lookupBtn.disabled = false;
+    lookupBtn.textContent = 'Lookup Merge Requests';
+  }).catch(() => {});
 }
 
 function renderEpicResults(data) {
@@ -877,7 +894,7 @@ function renderEpicResults(data) {
   });
 }
 
-async function initEpic(context) {
+function initEpic(context) {
   showJiraView();
   jiraTicketEl.textContent = `Epic #${context.epicIid}`;
   setStatus(`Epic #${context.epicIid}`, 'info');
@@ -886,19 +903,19 @@ async function initEpic(context) {
   lookupBtn.textContent = 'Searching...';
   setStatus(`Fetching MRs for epic #${context.epicIid}...`, 'info');
 
-  try {
-    const result = await chrome.runtime.sendMessage({
-      action: 'lookupEpicMRs',
-      groupPath: context.groupPath,
-      epicIid: context.epicIid
-    });
+  // Lookup deferred so popup UI paints first
+  chrome.runtime.sendMessage({
+    action: 'lookupEpicMRs',
+    groupPath: context.groupPath,
+    epicIid: context.epicIid
+  }).then(result => {
     renderEpicResults(result);
-  } catch (e) {
+  }).catch(e => {
     setStatus(`Lookup failed: ${e.message}`, 'error');
-  }
-
-  lookupBtn.disabled = false;
-  lookupBtn.textContent = 'Lookup Merge Requests';
+  }).finally(() => {
+    lookupBtn.disabled = false;
+    lookupBtn.textContent = 'Lookup Merge Requests';
+  });
 }
 
 function withTimeout(promise, ms, fallback) {
@@ -908,37 +925,116 @@ function withTimeout(promise, ms, fallback) {
   ]);
 }
 
-async function init() {
+// Fast path: parse tab URL in popup (no service worker wake required)
+function detectContextFromUrl(url) {
+  if (!url) return { type: 'unknown' };
+
+  if (url.includes('atlassian.net')) {
+    const browseMatch = url.match(/\/browse\/([A-Z][A-Z0-9]+-\d+)/i);
+    const selectedMatch = url.match(/[?&]selectedIssue=([A-Z][A-Z0-9]+-\d+)/i);
+    const ticketId = browseMatch?.[1]?.toUpperCase() || selectedMatch?.[1]?.toUpperCase() || null;
+    if (ticketId) return { type: 'jira', ticketId };
+    return { type: 'jira-pending' };
+  }
+
+  if (url.includes('/-/epics/')) {
+    const epicMatch = url.match(/\/([^/]+(?:\/[^/]+)*)\/-\/epics\/(\d+)/);
+    if (epicMatch) return { type: 'epic', groupPath: epicMatch[1], epicIid: epicMatch[2] };
+  }
+
+  if (url.includes('merge_requests')) {
+    return { type: 'gitlab' };
+  }
+
+  return { type: 'unknown' };
+}
+
+function showLastSyncOrHint() {
+  chrome.runtime.sendMessage({ action: 'getSyncState' }).then(state => {
+    if (state && state.results && state.results.length > 0 && state.progress && state.progress.length > 0) {
+      const successCount = state.results.filter(r => r.status === 'success').length;
+      setStatus(`Last sync: ${successCount}/${state.results.length} succeeded.`, 'success');
+      renderProgress(state.progress);
+      renderResults(state.results);
+    } else {
+      setStatus('Navigate to a GitLab MR page or Jira ticket to use this extension.', 'info');
+    }
+  }).catch(() => {
+    setStatus('Navigate to a GitLab MR page or Jira ticket to use this extension.', 'info');
+  });
+}
+
+function init() {
+  // Paint shell immediately — never block on service worker cold start
   showGitlabView();
   syncBtn.disabled = true;
+  setStatus('Loading…', 'info');
 
-  // Non-blocking context fetch
-  chrome.runtime.sendMessage({ action: 'getPageContext' }).then(context => {
-    if (!context || context.type === 'unknown') {
-      chrome.runtime.sendMessage({ action: 'getSyncState' }).then(state => {
-        if (state && state.results && state.results.length > 0 && state.progress && state.progress.length > 0) {
-          const successCount = state.results.filter(r => r.status === 'success').length;
-          setStatus(`Last sync: ${successCount}/${state.results.length} succeeded.`, 'success');
-          renderProgress(state.progress);
-          renderResults(state.results);
-        } else {
-          setStatus('Navigate to a GitLab MR page or Jira ticket to use this extension.', 'info');
-        }
+  const CACHE_MAX_MS = 5 * 60 * 1000;
+
+  Promise.all([
+    chrome.tabs.query({ active: true, currentWindow: true }),
+    chrome.storage.session.get('pageContext').catch(() => ({}))
+  ]).then(([[tab], session]) => {
+    const url = tab && tab.url;
+    const cached = session && session.pageContext;
+    const cacheFresh = cached && cached.ts && (Date.now() - cached.ts < CACHE_MAX_MS);
+    const fast = detectContextFromUrl(url);
+
+    // Prefer fresh session cache only when it matches current tab type (no SW needed)
+    if (cacheFresh) {
+      if (cached.type === 'jira' && cached.ticketId && (fast.type === 'jira' || fast.type === 'jira-pending')) {
+        initJira(cached.ticketId);
+        return;
+      }
+      if (cached.type === 'epic' && cached.groupPath && cached.epicIid && fast.type === 'epic') {
+        initEpic(cached);
+        return;
+      }
+      if (cached.type === 'gitlab' && fast.type === 'gitlab' && (!cached.url || cached.url === url)) {
+        initGitlab(cached);
+        return;
+      }
+    }
+
+    if (fast.type === 'jira' && fast.ticketId) {
+      initJira(fast.ticketId);
+      return;
+    }
+
+    if (fast.type === 'epic') {
+      initEpic(fast);
+      return;
+    }
+
+    if (fast.type === 'gitlab') {
+      document.getElementById('fix-mrs-btn').style.display = '';
+      setStatus('Reading merge requests…', 'info');
+      // SW may cold-start; shell already visible
+      chrome.runtime.sendMessage({ action: 'getPageContext' }).then(context => {
+        if (context && context.type === 'gitlab') initGitlab(context);
+        else initGitlab({ type: 'gitlab', mrs: [] });
       }).catch(() => {
-        setStatus('Navigate to a GitLab MR page or Jira ticket to use this extension.', 'info');
+        initGitlab({ type: 'gitlab', mrs: [] });
       });
       return;
     }
 
-    if (context.type === 'jira') {
-      initJira(context.ticketId);
-    } else if (context.type === 'epic') {
-      initEpic(context);
-    } else if (context.type === 'gitlab') {
-      initGitlab(context);
-    }
+    // Jira board / unknown — SW fallback for content-script ticket
+    chrome.runtime.sendMessage({ action: 'getPageContext' }).then(context => {
+      if (!context || context.type === 'unknown') {
+        showLastSyncOrHint();
+        return;
+      }
+      if (context.type === 'jira') initJira(context.ticketId);
+      else if (context.type === 'epic') initEpic(context);
+      else if (context.type === 'gitlab') initGitlab(context);
+      else showLastSyncOrHint();
+    }).catch(() => {
+      showLastSyncOrHint();
+    });
   }).catch(() => {
-    setStatus('Could not read page. Try refreshing.', 'error');
+    setStatus('Could not read tab. Try refreshing.', 'error');
   });
 }
 

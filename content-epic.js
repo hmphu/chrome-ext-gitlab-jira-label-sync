@@ -11,6 +11,11 @@
   function autoSend() {
     const info = getEpicInfo();
     if (info) {
+      try {
+        chrome.storage.session.set({
+          pageContext: { type: 'epic', ...info, ts: Date.now() }
+        });
+      } catch (_) {}
       chrome.runtime.sendMessage({ action: 'epicPageDetected', ...info }).catch(() => {});
     }
   }

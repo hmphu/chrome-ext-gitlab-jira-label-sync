@@ -21,6 +21,11 @@
   function autoSend() {
     const ticketId = getJiraTicketId();
     if (ticketId) {
+      try {
+        chrome.storage.session.set({
+          pageContext: { type: 'jira', ticketId, ts: Date.now() }
+        });
+      } catch (_) {}
       chrome.runtime.sendMessage({ action: 'jiraPageDetected', ticketId }).catch(() => {});
     }
   }
