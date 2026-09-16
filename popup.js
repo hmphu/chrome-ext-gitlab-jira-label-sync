@@ -782,79 +782,83 @@ function startPolling() {
   }, 500);
 }
 
-function applyGitlabContext(context, state) {
+function applyGitlabContext(context) {
   if (context && context.mrs && context.mrs.length > 0) {
     extractedData = context;
-    // DOM-only extract — no Jira API call here
+    // DOM/URL only — does NOT call Jira or GitLab API
     setStatus(`Found ${context.mrs.length} MR(s) on this page.`, 'info');
     renderMRList(context.mrs);
     syncBtn.disabled = false;
   } else {
-    if (!state || !state.results || !state.results.length) {
-      setStatus('No merge requests found on this page.', 'info');
-    }
+    setStatus('No merge requests found on this page.', 'info');
     syncBtn.disabled = true;
+  }
+}
+
+// Instant shell from URL alone (0 network, 0 SW, 0 scripting)
+function gitlabContextFromUrl(url) {
+  if (!url) return { type: 'gitlab', mrs: [], projectPath: null };
+  try {
+    const u = new URL(url);
+    const projectMatch = u.pathname.match(/^\/(.+?)\/-\/merge_requests/);
+    const projectPath = projectMatch ? projectMatch[1] : null;
+    const single = u.pathname.match(/merge_requests\/(\d+)/);
+    if (single) {
+      return {
+        type: 'gitlab',
+        projectPath,
+        mrs: [{
+          title: `MR !${single[1]}`,
+          jiraTicket: null,
+          mrIid: single[1],
+          mrUrl: u.pathname,
+          needsResolve: true
+        }]
+      };
+    }
+    return { type: 'gitlab', projectPath, mrs: [] };
+  } catch (_) {
+    return { type: 'gitlab', mrs: [], projectPath: null };
   }
 }
 
 function initGitlab(context) {
   showGitlabView();
   document.getElementById('fix-mrs-btn').style.display = '';
+  applyGitlabContext(context || { mrs: [] });
+  // Do NOT wake service worker on open — getSyncState is deferred / on-demand only
+}
 
-  // Paint MR list immediately if context already has data (no SW wait)
-  if (context && context.mrs && context.mrs.length > 0) {
-    applyGitlabContext(context, null);
-  }
-
-  chrome.runtime.sendMessage({ action: 'getSyncState' }).then(state => {
-    if (state && state.running) {
-      setStatus(`Sync in progress... ${state.completed}/${state.total}`, 'info');
-      syncBtn.disabled = true;
-      syncBtn.textContent = `Syncing ${state.completed}/${state.total}...`;
-      renderProgress(state.progress);
-      startPolling();
-      return;
-    }
-
-    if (state && state.results && state.results.length > 0 && state.progress && state.progress.length > 0) {
-      const successCount = state.results.filter(r => r.status === 'success').length;
-      setStatus(`Last sync: ${successCount}/${state.results.length} succeeded.`, 'success');
-      renderProgress(state.progress);
-      renderResults(state.results);
-    }
-
-    if (!(context && context.mrs && context.mrs.length > 0)) {
-      applyGitlabContext(context, state);
-    }
-  }).catch(() => {
-    if (!(context && context.mrs && context.mrs.length > 0)) {
-      setStatus('No merge requests found on this page.', 'info');
-      syncBtn.disabled = true;
-    }
-  });
+// Optional: load last sync results after UI is already visible (may cold-start SW)
+function loadSyncStateLater() {
+  setTimeout(() => {
+    chrome.runtime.sendMessage({ action: 'getSyncState' }).then(state => {
+      if (!state) return;
+      if (state.running) {
+        setStatus(`Sync in progress... ${state.completed}/${state.total}`, 'info');
+        syncBtn.disabled = true;
+        syncBtn.textContent = `Syncing ${state.completed}/${state.total}...`;
+        renderProgress(state.progress || []);
+        startPolling();
+        return;
+      }
+      // Only show last sync if we have no MR list yet
+      if ((!extractedData || !extractedData.mrs || !extractedData.mrs.length) &&
+          state.results && state.results.length > 0 && state.progress && state.progress.length > 0) {
+        const successCount = state.results.filter(r => r.status === 'success').length;
+        setStatus(`Last sync: ${successCount}/${state.results.length} succeeded.`, 'success');
+        renderProgress(state.progress);
+        renderResults(state.results);
+      }
+    }).catch(() => {});
+  }, 0);
 }
 
 function initJira(ticketId) {
   showJiraView();
   jiraTicketEl.textContent = ticketId;
-  setStatus(`Viewing Jira ticket: ${ticketId}`, 'info');
-
-  // Lookup is deferred so popup UI paints first
-  chrome.storage.sync.get({ autoLookup: true }).then(async (settings) => {
-    if (!settings.autoLookup) return;
-
-    lookupBtn.disabled = true;
-    lookupBtn.textContent = 'Searching...';
-    setStatus(`Searching GitLab for ${ticketId}...`, 'info');
-    try {
-      const result = await chrome.runtime.sendMessage({ action: 'lookupMRs', ticketId });
-      renderJiraResults(result);
-    } catch (e) {
-      setStatus(`Lookup failed: ${e.message}`, 'error');
-    }
-    lookupBtn.disabled = false;
-    lookupBtn.textContent = 'Lookup Merge Requests';
-  }).catch(() => {});
+  setStatus(`Jira: ${ticketId} — click Lookup to search MRs`, 'info');
+  // Do NOT auto-lookup on open (lookupMRs wakes SW + many API calls = multi-second hang)
 }
 
 function renderEpicResults(data) {
@@ -888,25 +892,8 @@ function renderEpicResults(data) {
 function initEpic(context) {
   showJiraView();
   jiraTicketEl.textContent = `Epic #${context.epicIid}`;
-  setStatus(`Epic #${context.epicIid}`, 'info');
-
-  lookupBtn.disabled = true;
-  lookupBtn.textContent = 'Searching...';
-  setStatus(`Fetching MRs for epic #${context.epicIid}...`, 'info');
-
-  // Lookup deferred so popup UI paints first
-  chrome.runtime.sendMessage({
-    action: 'lookupEpicMRs',
-    groupPath: context.groupPath,
-    epicIid: context.epicIid
-  }).then(result => {
-    renderEpicResults(result);
-  }).catch(e => {
-    setStatus(`Lookup failed: ${e.message}`, 'error');
-  }).finally(() => {
-    lookupBtn.disabled = false;
-    lookupBtn.textContent = 'Lookup Merge Requests';
-  });
+  setStatus(`Epic #${context.epicIid} — click Lookup to search MRs`, 'info');
+  // Do NOT auto-fetch on open
 }
 
 function withTimeout(promise, ms, fallback) {
@@ -1014,79 +1001,41 @@ function getSessionPageContext() {
 }
 
 function init() {
+  // Keep shell "Ready" text — never flash Loading
   showGitlabView();
   syncBtn.disabled = true;
-  setStatus('Loading…', 'info');
 
-  const CACHE_MAX_MS = 5 * 60 * 1000;
-
-  Promise.all([
+  // Hard timeout so chrome.tabs.query can never hang the UI for 30s+
+  const tabQuery = Promise.race([
     chrome.tabs.query({ active: true, currentWindow: true }),
-    getSessionPageContext()
-  ]).then(([tabs, session]) => {
+    new Promise((resolve) => setTimeout(() => resolve([]), 300))
+  ]);
+
+  tabQuery.then(tabs => {
     const tab = tabs && tabs[0];
     const url = tab && tab.url;
-    const cached = session && session.pageContext;
-    const cacheFresh = cached && cached.ts && (Date.now() - cached.ts < CACHE_MAX_MS);
+    if (!url) {
+      setStatus('Open a GitLab MR or Jira tab, then reopen.', 'info');
+      return;
+    }
     const fast = detectContextFromUrl(url);
 
-    if (cacheFresh) {
-      if (cached.type === 'jira' && cached.ticketId && (fast.type === 'jira' || fast.type === 'jira-pending')) {
-        initJira(cached.ticketId);
-        return;
-      }
-      if (cached.type === 'epic' && cached.groupPath && cached.epicIid && fast.type === 'epic') {
-        initEpic(cached);
-        return;
-      }
-      if (cached.type === 'gitlab' && fast.type === 'gitlab' && (!cached.url || cached.url === url)) {
-        initGitlab(cached);
-        return;
-      }
+    if (fast.type === 'gitlab') {
+      // URL-only — no executeScript, no SW
+      initGitlab(gitlabContextFromUrl(url));
+      return;
     }
-
     if (fast.type === 'jira' && fast.ticketId) {
       initJira(fast.ticketId);
       return;
     }
-
     if (fast.type === 'epic') {
       initEpic(fast);
       return;
     }
-
-    if (fast.type === 'gitlab') {
-      document.getElementById('fix-mrs-btn').style.display = '';
-      setStatus('Reading merge requests…', 'info');
-      // Direct DOM extract via scripting — skips SW cold start
-      if (tab && tab.id) {
-        extractGitlabFromTab(tab.id).then(context => {
-          initGitlab(context);
-          try {
-            chrome.storage.session.set({
-              pageContext: { ...context, url, ts: Date.now() }
-            });
-          } catch (_) {}
-        }).catch(() => initGitlab({ type: 'gitlab', mrs: [] }));
-      } else {
-        initGitlab({ type: 'gitlab', mrs: [] });
-      }
-      return;
-    }
-
-    // Unknown / Jira board without ticket in URL
-    chrome.runtime.sendMessage({ action: 'getPageContext' }).then(context => {
-      if (!context || context.type === 'unknown') {
-        showLastSyncOrHint();
-        return;
-      }
-      if (context.type === 'jira') initJira(context.ticketId);
-      else if (context.type === 'epic') initEpic(context);
-      else if (context.type === 'gitlab') initGitlab(context);
-      else showLastSyncOrHint();
-    }).catch(() => showLastSyncOrHint());
+    setStatus('Navigate to a GitLab MR page or Jira ticket.', 'info');
   }).catch(() => {
-    setStatus('Could not read tab. Try refreshing.', 'error');
+    setStatus('Could not read tab.', 'error');
   });
 }
 
@@ -1121,40 +1070,62 @@ async function createMRToTarget(targetBranch, titleFn) {
   }
 }
 
+function on(id, event, handler) {
+  const el = typeof id === 'string' ? document.getElementById(id) : id;
+  if (!el) return false;
+  el.addEventListener(event, handler);
+  return true;
+}
+
 function bindUI() {
   ['tag-services', 'tag-date', 'tag-patch', 'tag-patch-prefix', 'tag-env'].forEach(id => {
-    const el = document.getElementById(id);
-    if (el) el.addEventListener('input', renderTagPreview);
+    on(id, 'input', renderTagPreview);
   });
 
-  const createTagsFooter = document.getElementById('create-tags-btn-footer');
-  if (createTagsFooter) createTagsFooter.addEventListener('click', () => showTagView());
+  on('create-tags-btn-footer', 'click', () => showTagView());
+  on('create-tags-btn', 'click', onCreateTagsClick);
+  on('search-old-tags-btn', 'click', onSearchOldTagsClick);
+  on('delete-old-tags-btn', 'click', onDeleteOldTagsClick);
 
-  const createTagsBtn = document.getElementById('create-tags-btn');
-  if (createTagsBtn) createTagsBtn.addEventListener('click', onCreateTagsClick);
-
-  const searchOldTagsBtn = document.getElementById('search-old-tags-btn');
-  if (searchOldTagsBtn) searchOldTagsBtn.addEventListener('click', onSearchOldTagsClick);
-
-  const deleteOldTagsBtn = document.getElementById('delete-old-tags-btn');
-  if (deleteOldTagsBtn) deleteOldTagsBtn.addEventListener('click', onDeleteOldTagsClick);
-
-  syncBtn.addEventListener('click', async () => {
-    if (!extractedData) return;
+  on(syncBtn, 'click', async () => {
+    if (!syncBtn) return;
     syncBtn.disabled = true;
     syncBtn.textContent = 'Starting...';
-    progressEl.innerHTML = '';
-    resultsEl.innerHTML = '';
-    await chrome.runtime.sendMessage({ action: 'startSync', data: extractedData });
-    startPolling();
+    if (progressEl) progressEl.innerHTML = '';
+    if (resultsEl) resultsEl.innerHTML = '';
+    try {
+      const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+      if (tab && tab.id && tab.url && /merge_requests/.test(tab.url)) {
+        const fresh = await extractGitlabFromTab(tab.id);
+        if (fresh && fresh.mrs && fresh.mrs.length) {
+          extractedData = fresh;
+          applyGitlabContext(fresh);
+        }
+      }
+      if (!extractedData || !extractedData.mrs || !extractedData.mrs.length) {
+        setStatus('No merge requests to sync.', 'error');
+        syncBtn.disabled = false;
+        syncBtn.textContent = 'Sync Labels';
+        return;
+      }
+      await chrome.runtime.sendMessage({ action: 'startSync', data: extractedData });
+      startPolling();
+    } catch (e) {
+      setStatus(`Failed: ${e.message}`, 'error');
+      syncBtn.disabled = false;
+      syncBtn.textContent = 'Sync Labels';
+    }
   });
 
-  lookupBtn.addEventListener('click', async () => {
-    const ticketId = jiraTicketEl.textContent.trim();
-    if (!ticketId) return;
+  on(lookupBtn, 'click', async () => {
+    const ticketId = (jiraTicketEl && jiraTicketEl.textContent || '').trim();
+    if (!ticketId) {
+      setStatus('No Jira ticket on this page.', 'error');
+      return;
+    }
     lookupBtn.disabled = true;
     lookupBtn.textContent = 'Searching...';
-    jiraResultsEl.innerHTML = '';
+    if (jiraResultsEl) jiraResultsEl.innerHTML = '';
     setStatus(`Searching GitLab for ${ticketId}...`, 'info');
     try {
       const context = await chrome.runtime.sendMessage({ action: 'getPageContext' });
@@ -1176,15 +1147,18 @@ function bindUI() {
     lookupBtn.textContent = 'Lookup Merge Requests';
   });
 
-  optionsLink.addEventListener('click', () => chrome.runtime.openOptionsPage());
+  on(optionsLink, 'click', (e) => {
+    e.preventDefault();
+    chrome.runtime.openOptionsPage();
+  });
 
-  document.getElementById('create-mr-testing-btn').addEventListener('click', () => {
+  on('create-mr-testing-btn', 'click', () => {
     createMRToTarget('testing', branch => `Sync release ${branch.replace(/^releases\//, '')}`);
   });
-  document.getElementById('create-mr-main-btn').addEventListener('click', () => {
+  on('create-mr-main-btn', 'click', () => {
     createMRToTarget('main', branch => `Release ${branch.replace(/^releases\//, '')}`);
   });
-  document.getElementById('fix-mrs-btn').addEventListener('click', async () => {
+  on('fix-mrs-btn', 'click', async () => {
     const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
     if (!tab || !tab.url) return;
     const projectMatch = tab.url.match(/https?:\/\/([^/]+)\/(.+?)\/-\//);
@@ -1195,8 +1169,7 @@ function bindUI() {
       return;
     }
     const btn = document.getElementById('fix-mrs-btn');
-    btn.disabled = true;
-    btn.textContent = 'Fixing...';
+    if (btn) { btn.disabled = true; btn.textContent = 'Fixing...'; }
     setStatus('Scanning for broken MRs...', 'info');
     try {
       const result = await chrome.runtime.sendMessage({ action: 'fixBrokenMRs', projectPath });
@@ -1210,60 +1183,72 @@ function bindUI() {
     } catch (e) {
       setStatus(`Failed: ${e.message}`, 'error');
     }
-    btn.disabled = false;
-    btn.textContent = 'Fix Broken MR Targets';
+    if (btn) { btn.disabled = false; btn.textContent = 'Fix Broken MR Targets'; }
   });
-  document.getElementById('create-mr-main-to-testing-btn').addEventListener('click', async () => {
-    const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-    if (!tab || !tab.url) return;
-    const projectMatch = tab.url.match(/https?:\/\/([^/]+)\/(.+?)\/-\//);
-    const rootMatch = !projectMatch && tab.url.match(/https?:\/\/([^/]+)\/(.+?)(?:\?|#|$)/);
-    const host = projectMatch ? projectMatch[1] : (rootMatch ? rootMatch[1] : null);
-    const projectPath = projectMatch ? projectMatch[2] : (rootMatch ? rootMatch[2].replace(/\/$/, '') : null);
-    if (!host || !projectPath) {
-      setStatus('Navigate to a GitLab project page first.', 'error');
-      return;
+  on('create-mr-main-to-testing-btn', 'click', async () => {
+    try {
+      const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+      if (!tab || !tab.url) {
+        setStatus('No active tab URL.', 'error');
+        return;
+      }
+      const projectMatch = tab.url.match(/https?:\/\/([^/]+)\/(.+?)\/-\//);
+      const rootMatch = !projectMatch && tab.url.match(/https?:\/\/([^/]+)\/(.+?)(?:\?|#|$)/);
+      const host = projectMatch ? projectMatch[1] : (rootMatch ? rootMatch[1] : null);
+      const projectPath = projectMatch ? projectMatch[2] : (rootMatch ? rootMatch[2].replace(/\/$/, '') : null);
+      if (!host || !projectPath) {
+        setStatus('Navigate to a GitLab project page first.', 'error');
+        return;
+      }
+      const mrUrl = `https://${host}/${projectPath}/-/merge_requests/new?merge_request[source_branch]=main&merge_request[target_branch]=testing&merge_request[title]=${encodeURIComponent('Sync main into testing')}`;
+      chrome.tabs.create({ url: mrUrl, active: true });
+    } catch (e) {
+      setStatus(`Failed: ${e.message}`, 'error');
     }
-    const mrUrl = `https://${host}/${projectPath}/-/merge_requests/new?merge_request[source_branch]=main&merge_request[target_branch]=testing&merge_request[title]=${encodeURIComponent('Sync main into testing')}`;
-    chrome.tabs.create({ url: mrUrl, active: true });
   });
-  document.getElementById('create-mr-main-to-release-btn').addEventListener('click', async () => {
-    const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-    if (!tab || !tab.url) return;
-    const projectMatch = tab.url.match(/https?:\/\/([^/]+)\/(.+?)\/-\//);
-    const rootMatch = !projectMatch && tab.url.match(/https?:\/\/([^/]+)\/(.+?)(?:\?|#|$)/);
-    const host = projectMatch ? projectMatch[1] : (rootMatch ? rootMatch[1] : null);
-    const projectPath = projectMatch ? projectMatch[2] : (rootMatch ? rootMatch[2].replace(/\/$/, '') : null);
-    if (!host || !projectPath) {
-      setStatus('Navigate to a GitLab project page first.', 'error');
-      return;
+  on('create-mr-main-to-release-btn', 'click', async () => {
+    try {
+      const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+      if (!tab || !tab.url) {
+        setStatus('No active tab URL.', 'error');
+        return;
+      }
+      const projectMatch = tab.url.match(/https?:\/\/([^/]+)\/(.+?)\/-\//);
+      const rootMatch = !projectMatch && tab.url.match(/https?:\/\/([^/]+)\/(.+?)(?:\?|#|$)/);
+      const host = projectMatch ? projectMatch[1] : (rootMatch ? rootMatch[1] : null);
+      const projectPath = projectMatch ? projectMatch[2] : (rootMatch ? rootMatch[2].replace(/\/$/, '') : null);
+      if (!host || !projectPath) {
+        setStatus('Navigate to a GitLab project page first.', 'error');
+        return;
+      }
+      const { gitlabToken } = await chrome.storage.sync.get(['gitlabToken']);
+      const projectId = encodeURIComponent(projectPath);
+      const res = await fetch(`https://${host}/api/v4/projects/${projectId}`, {
+        headers: { 'PRIVATE-TOKEN': gitlabToken }
+      });
+      const project = await res.json();
+      const defaultBranch = project.default_branch || 'main';
+      const mrUrl = `https://${host}/${projectPath}/-/merge_requests/new?merge_request[source_branch]=main&merge_request[target_branch]=${encodeURIComponent(defaultBranch)}&merge_request[title]=${encodeURIComponent('Sync main to release')}`;
+      chrome.tabs.create({ url: mrUrl, active: true });
+    } catch (e) {
+      setStatus(`Failed: ${e.message}`, 'error');
     }
-    const { gitlabToken } = await chrome.storage.sync.get(['gitlabToken']);
-    const projectId = encodeURIComponent(projectPath);
-    const res = await fetch(`https://${host}/api/v4/projects/${projectId}`, {
-      headers: { 'PRIVATE-TOKEN': gitlabToken }
-    });
-    const project = await res.json();
-    const defaultBranch = project.default_branch || 'main';
-    const mrUrl = `https://${host}/${projectPath}/-/merge_requests/new?merge_request[source_branch]=main&merge_request[target_branch]=${encodeURIComponent(defaultBranch)}&merge_request[title]=${encodeURIComponent('Sync main to release')}`;
-    chrome.tabs.create({ url: mrUrl, active: true });
   });
 }
 
 function boot() {
   try {
     bindUI();
-    // Let Chrome paint the popup shell before any chrome.* work
-    requestAnimationFrame(() => {
+    setStatus('Tools ready', 'success');
+    setTimeout(() => {
       try { init(); } catch (e) {
         setStatus(`Init error: ${e.message}`, 'error');
       }
-    });
+    }, 0);
   } catch (e) {
-    const el = document.getElementById('status');
-    if (el) {
-      el.style.display = 'block';
-      el.textContent = `Popup error: ${e.message}`;
+    if (statusEl) {
+      statusEl.className = 'status error';
+      statusEl.textContent = `Popup error: ${e.message}`;
     }
   }
 }

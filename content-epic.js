@@ -16,7 +16,7 @@
           pageContext: { type: 'epic', ...info, ts: Date.now() }
         });
       } catch (_) {}
-      chrome.runtime.sendMessage({ action: 'epicPageDetected', ...info }).catch(() => {});
+      // No runtime.sendMessage — avoid waking SW on every epic page view
     }
   }
 

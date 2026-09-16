@@ -1,32 +1,58 @@
 {
   "manifest_version": 3,
   "name": "GitLab Jira Tools",
-  "version": "1.0.0",
+  "version": "1.0.6",
   "description": "Sync Jira ticket labels to GitLab merge requests automatically",
-  "permissions": ["storage", "activeTab", "tabs", "contextMenus", "notifications", "scripting"],
-  "host_permissions": ["https://*/*"],
+  "permissions": [
+    "storage",
+    "activeTab",
+    "tabs",
+    "contextMenus",
+    "notifications",
+    "scripting"
+  ],
+  "host_permissions": [
+    "https://*/*"
+  ],
   "background": {
     "service_worker": "background.js"
   },
   "content_scripts": [
     {
-      "matches": ["https://*/*/-/merge_requests*"],
-      "js": ["content.js"],
+      "matches": [
+        "https://*/*/-/merge_requests*"
+      ],
+      "js": [
+        "content.js"
+      ],
       "run_at": "document_idle"
     },
     {
-      "matches": ["https://*/*/-/tree/*", "https://*/*/-/branches*"],
-      "js": ["content-branch.js"],
+      "matches": [
+        "https://*/*/-/tree/*",
+        "https://*/*/-/branches*"
+      ],
+      "js": [
+        "content-branch.js"
+      ],
       "run_at": "document_idle"
     },
     {
-      "matches": ["https://*.atlassian.net/*"],
-      "js": ["content-jira.js"],
+      "matches": [
+        "https://*.atlassian.net/*"
+      ],
+      "js": [
+        "content-jira.js"
+      ],
       "run_at": "document_idle"
     },
     {
-      "matches": ["https://*/*/-/epics/*"],
-      "js": ["content-epic.js"],
+      "matches": [
+        "https://*/*/-/epics/*"
+      ],
+      "js": [
+        "content-epic.js"
+      ],
       "run_at": "document_idle"
     }
   ],

@@ -68,16 +68,16 @@ chrome.runtime.onInstalled.addListener(() => {
   });
 });
 
-chrome.tabs.onUpdated.addListener(async (tabId, changeInfo, tab) => {
-  if (changeInfo.status !== 'complete' || !tab.url) return;
-  const settings = await getSettings();
-  const baseUrl = settings.gitlabBaseUrl?.replace(/\/$/, '');
-  if (!baseUrl || !tab.url.startsWith(baseUrl)) return;
-  chrome.scripting.executeScript({
-    target: { tabId },
-    files: ['content-sidebar.js']
-  }).catch(() => {});
-});
+// Sidebar inject DISABLED on tab update — was waking SW on every GitLab SPA
+// navigation and could freeze action/popup for 30s+. Use context menu / manual only.
+// (content-sidebar.js can still be injected on demand later if needed)
+
+let cachedGitlabBaseUrl = null;
+try {
+  chrome.storage.sync.get({ gitlabBaseUrl: '' }, (s) => {
+    cachedGitlabBaseUrl = (s && s.gitlabBaseUrl || '').replace(/\/$/, '') || null;
+  });
+} catch (_) {}
 
 chrome.contextMenus.onClicked.addListener((info, tab) => {
   if (info.menuItemId === 'showJiraInfo') {

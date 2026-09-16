@@ -26,7 +26,7 @@
           pageContext: { type: 'jira', ticketId, ts: Date.now() }
         });
       } catch (_) {}
-      chrome.runtime.sendMessage({ action: 'jiraPageDetected', ticketId }).catch(() => {});
+      // No runtime.sendMessage here — avoid waking SW on every Jira navigation
     }
   }
 
