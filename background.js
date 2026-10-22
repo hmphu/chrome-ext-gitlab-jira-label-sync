@@ -611,6 +611,8 @@ async function resolveJiraTicket(settings, projectPath, mr) {
 }
 
 const STATUS_LABEL_PREFIX = 'Status: ';
+const SPRINT_LABEL_PREFIX = 'Sprint: ';
+const PRIORITY_LABEL_PREFIX = 'Priority: ';
 
 async function syncLabelsForMR(settings, projectPath, mr) {
   const result = { mr: mr.title, jiraTicket: mr.jiraTicket, status: 'pending', labels: [], errors: [] };
@@ -625,9 +627,15 @@ async function syncLabelsForMR(settings, projectPath, mr) {
     result.jiraTicket = ticketId;
 
     addProgress(`Fetching Jira labels and status for ${ticketId}...`);
-    const issue = await jiraFetch(settings, `issue/${ticketId}?fields=labels,status`);
+    const issueFields = settings.sprintFieldId ? `labels,status,priority,${settings.sprintFieldId}` : 'labels,status,priority';
+    const issue = await jiraFetch(settings, `issue/${ticketId}?fields=${issueFields}`);
     const jiraLabels = issue.fields.labels || [];
     const jiraStatus = issue.fields.status && issue.fields.status.name;
+    const priorityName = issue.fields.priority && issue.fields.priority.name;
+    const sprints = settings.sprintFieldId ? issue.fields[settings.sprintFieldId] : null;
+    const sprintList = Array.isArray(sprints) ? sprints : (sprints ? [sprints] : []);
+    const sprint = sprintList.find(s => s && s.state === 'active') || sprintList[sprintList.length - 1];
+    const sprintName = sprint && typeof sprint.name === 'string' ? sprint.name.trim() : '';
 
     const encoded = encodeURIComponent(projectPath);
     const mrData = await gitlabFetch(settings, `projects/${encoded}/merge_requests/${mr.mrIid}`);
@@ -645,6 +653,16 @@ async function syncLabelsForMR(settings, projectPath, mr) {
       labelsToApply.push(currentStatusLabel);
     }
     addProgress(`Jira status: "${jiraStatus}" → label "${currentStatusLabel}"`);
+    const oldSprintLabels = existingMrLabels.filter(l => l.startsWith(SPRINT_LABEL_PREFIX));
+    const currentSprintLabel = sprintName ? `${SPRINT_LABEL_PREFIX}${sprintName}` : null;
+    if (currentSprintLabel && !labelsToApply.includes(currentSprintLabel)) {
+      labelsToApply.push(currentSprintLabel);
+    }
+    const oldPriorityLabels = existingMrLabels.filter(l => l.startsWith(PRIORITY_LABEL_PREFIX));
+    const currentPriorityLabel = priorityName ? `${PRIORITY_LABEL_PREFIX}${priorityName}` : null;
+    if (currentPriorityLabel && !labelsToApply.includes(currentPriorityLabel)) {
+      labelsToApply.push(currentPriorityLabel);
+    }
 
     result.labels = labelsToApply;
 
@@ -665,7 +683,11 @@ async function syncLabelsForMR(settings, projectPath, mr) {
     }
 
     // Build final label set: existing labels - old status labels + new labels
-    const labelsToRemove = oldStatusLabels.filter(l => l !== currentStatusLabel);
+    const labelsToRemove = [
+      ...oldStatusLabels.filter(l => l !== currentStatusLabel),
+      ...(settings.sprintFieldId ? oldSprintLabels.filter(l => l !== currentSprintLabel) : []),
+      ...oldPriorityLabels.filter(l => l !== currentPriorityLabel)
+    ];
     const finalLabels = [
       ...existingMrLabels.filter(l => !labelsToRemove.includes(l) && !labelsToApply.includes(l)),
       ...labelsToApply
@@ -716,6 +738,13 @@ async function runSync(data) {
     syncState.error = 'Please configure your API credentials in the extension options.';
     syncState.running = false;
     return;
+  }
+
+  try {
+    const fields = await jiraFetch(cachedSettings, 'field');
+    cachedSettings.sprintFieldId = fields.find(field => field.name === 'Sprint' && /^customfield_\d+$/.test(field.id))?.id;
+  } catch (e) {
+    addProgress(`Could not identify Jira Sprint field: ${e.message}`);
   }
 
   if (data) {
